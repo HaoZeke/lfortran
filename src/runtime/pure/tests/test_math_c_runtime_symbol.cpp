@@ -1,36 +1,34 @@
-// Unit test for compile-time math symbol selection (no LFortran binary required).
-// Compile: c++ -std=c++17 -I../../../ -c is heavy; instead we ship a self-contained
-// reimplementation of the pure selection rules matching utils.h for CI without full tree.
-// Preferred: compile against installed headers when building LFortran.
-//
-// Standalone check of the same rules used by LCompilers::math_c_runtime_symbol:
+// Drives the shipped LCompilers::math_c_runtime_symbol (libasr/math_backend.h).
+// Build (from repo root or with -I to src):
+//   c++ -std=c++17 -I src -o test_math_symbol \
+//       src/runtime/pure/tests/test_math_c_runtime_symbol.cpp
 #include <cassert>
 #include <iostream>
 #include <string>
 
-static std::string math_c_runtime_symbol(const std::string &name, int kind,
-        bool is_complex, const std::string &backend) {
-    if (is_complex) {
-        return (kind == 4) ? ("_lfortran_c" + name) : ("_lfortran_z" + name);
-    }
-    const bool pure_trig = (backend == "pure") && (name == "sin" || name == "cos");
-    if (pure_trig) {
-        return (kind == 4) ? ("_lfortran_pure_s" + name) : ("_lfortran_pure_d" + name);
-    }
-    return (kind == 4) ? ("_lfortran_s" + name) : ("_lfortran_d" + name);
-}
+#include <libasr/math_backend.h>
 
 int main() {
+    using LCompilers::math_c_runtime_symbol;
+    using LCompilers::math_backend_policy;
+
     assert(math_c_runtime_symbol("sin", 8, false, "libm") == "_lfortran_dsin");
     assert(math_c_runtime_symbol("cos", 8, false, "libm") == "_lfortran_dcos");
     assert(math_c_runtime_symbol("sin", 4, false, "libm") == "_lfortran_ssin");
     assert(math_c_runtime_symbol("sin", 8, false, "pure") == "_lfortran_pure_dsin");
     assert(math_c_runtime_symbol("cos", 8, false, "pure") == "_lfortran_pure_dcos");
     assert(math_c_runtime_symbol("sin", 4, false, "pure") == "_lfortran_pure_ssin");
-    // complex never pure
     assert(math_c_runtime_symbol("sin", 8, true, "pure") == "_lfortran_zsin");
-    // other funcs stay libm names under pure policy
     assert(math_c_runtime_symbol("exp", 8, false, "pure") == "_lfortran_dexp");
-    std::cout << "PASS math_c_runtime_symbol\n";
+
+    // policy default + mutation (compile-time selection for a pass)
+    assert(math_backend_policy() == "libm"
+        || math_backend_policy() == "pure");
+    math_backend_policy() = "pure";
+    assert(math_c_runtime_symbol("sin", 8, false) == "_lfortran_pure_dsin");
+    math_backend_policy() = "libm";
+    assert(math_c_runtime_symbol("sin", 8, false) == "_lfortran_dsin");
+
+    std::cout << "PASS math_c_runtime_symbol (shipped libasr/math_backend.h)\n";
     return 0;
 }

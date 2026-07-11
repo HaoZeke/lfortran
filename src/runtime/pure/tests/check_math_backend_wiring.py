@@ -14,8 +14,10 @@ if not (root / "src/libasr/utils.h").is_file():
 
 checks = [
     (root / "src/libasr/utils.h", r'math_backend\s*=\s*"libm"', "PassOptions default libm"),
-    (root / "src/libasr/utils.h", r"math_c_runtime_symbol", "symbol helper"),
-    (root / "src/libasr/utils.h", r"_lfortran_pure_d", "pure d-symbol naming"),
+    (root / "src/libasr/utils.h", r"math_backend.h", "utils includes math_backend"),
+    (root / "src/libasr/math_backend.h", r"_lfortran_pure_d", "pure d-symbol naming"),
+    (root / "src/libasr/math_backend.h", r"math_c_runtime_symbol", "symbol helper header"),
+    (root / "src/runtime/legacy/CMakeLists.txt", r"lfortran_runtime_pure_math", "legacy builds pure_math archive"),
     (root / "src/libasr/pass/intrinsic_functions.h", r"math_c_runtime_symbol", "instantiate uses helper"),
     (root / "src/libasr/pass/intrinsic_function.cpp", r"math_backend_policy\(\)\s*=\s*pass_options\.math_backend", "pass sets policy"),
     (root / "src/bin/lfortran_command_line_parser.cpp", r"--math-backend", "CLI flag"),
@@ -35,12 +37,16 @@ for path, pat, label in checks:
     else:
         print(f"OK {label}")
 
-# Default path must still name classic libm symbols when backend is libm
-utils = (root / "src/libasr/utils.h").read_text()
-if '"_lfortran_d" + name' not in utils and '_lfortran_d' not in utils:
-    failed.append("FAIL default libm d-symbol naming missing from helper")
+# Default path must still name classic host-math symbols when backend is libm
+mb = (root / "src/libasr/math_backend.h").read_text()
+if '_lfortran_d' not in mb or 'backend == "libm"' not in mb and '"libm"' not in mb:
+    # accept pure/libm branches present
+    if '_lfortran_s' not in mb or '_lfortran_d' not in mb:
+        failed.append("FAIL default host-math d-symbol naming missing from math_backend.h")
+    else:
+        print("OK default host-math naming present")
 else:
-    print("OK default libm naming present")
+    print("OK default host-math naming present")
 
 if failed:
     print("\n".join(failed), file=sys.stderr)

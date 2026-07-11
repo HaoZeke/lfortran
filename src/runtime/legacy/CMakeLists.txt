@@ -87,3 +87,47 @@ install(
     FILES ../../../src/libasr/runtime/ISO_Fortran_binding.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/lfortran
 )
+
+# ---------------------------------------------------------------------------
+# Pure Sollya math backend archive (compile-time --math-backend=pure)
+# Built with system gfortran so the main C/CXX LFortran tree can produce it
+# without a circular dependency on the lfortran Fortran frontend.
+# Output next to liblfortran_runtime* so get_runtime_library_dir finds it.
+# ---------------------------------------------------------------------------
+find_program(LFORTRAN_PURE_MATH_FC gfortran)
+if(LFORTRAN_PURE_MATH_FC)
+    set(PURE_MATH_OBJDIR ${CMAKE_CURRENT_BINARY_DIR}/pure_math_objs)
+    set(PURE_MATH_A ${CMAKE_CURRENT_BINARY_DIR}/../liblfortran_runtime_pure_math.a)
+    set(PURE_TRIG_SRC ${CMAKE_CURRENT_SOURCE_DIR}/../pure/lfortran_intrinsic_trig.f90)
+    set(PURE_ABI_SRC  ${CMAKE_CURRENT_SOURCE_DIR}/../pure/lfortran_pure_math_abi.f90)
+
+    add_custom_command(
+        OUTPUT ${PURE_MATH_A}
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${PURE_MATH_OBJDIR}
+        COMMAND ${LFORTRAN_PURE_MATH_FC} -ffree-line-length-none -O2 -fPIC
+            -J${PURE_MATH_OBJDIR} -c ${PURE_TRIG_SRC}
+            -o ${PURE_MATH_OBJDIR}/lfortran_intrinsic_trig.o
+        COMMAND ${LFORTRAN_PURE_MATH_FC} -ffree-line-length-none -O2 -fPIC
+            -J${PURE_MATH_OBJDIR} -I${PURE_MATH_OBJDIR} -c ${PURE_ABI_SRC}
+            -o ${PURE_MATH_OBJDIR}/lfortran_pure_math_abi.o
+        COMMAND ${CMAKE_AR} rcs ${PURE_MATH_A}
+            ${PURE_MATH_OBJDIR}/lfortran_intrinsic_trig.o
+            ${PURE_MATH_OBJDIR}/lfortran_pure_math_abi.o
+        DEPENDS ${PURE_TRIG_SRC} ${PURE_ABI_SRC}
+        COMMENT "Building liblfortran_runtime_pure_math.a (gfortran Sollya pure sin/cos)"
+        VERBATIM
+    )
+    add_custom_target(lfortran_runtime_pure_math ALL DEPENDS ${PURE_MATH_A})
+    install(FILES ${PURE_MATH_A}
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        RENAME liblfortran_runtime_pure_math.a
+    )
+    # Also stage into build tree runtime dir (same as SHARED lib output)
+    install(FILES ${PURE_MATH_A}
+        DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/..
+        OPTIONAL
+    )
+    message(STATUS "Pure math backend: will build liblfortran_runtime_pure_math.a with ${LFORTRAN_PURE_MATH_FC}")
+else()
+    message(WARNING "gfortran not found: liblfortran_runtime_pure_math.a will not be built; --math-backend=pure cannot link")
+endif()
