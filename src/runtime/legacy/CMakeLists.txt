@@ -101,25 +101,22 @@ if(LFORTRAN_PURE_MATH_FC)
     set(PURE_TRIG_SRC ${CMAKE_CURRENT_SOURCE_DIR}/../pure/lfortran_intrinsic_trig.f90)
     set(PURE_ABI_SRC  ${CMAKE_CURRENT_SOURCE_DIR}/../pure/lfortran_pure_math_abi.f90)
 
+    # Portable object archive (no -flto): LFortran links this with clang/g++
+    # and does not pass -flto. LTO IR in a bare ar archive is not portable.
     add_custom_command(
         OUTPUT ${PURE_MATH_A}
         COMMAND ${CMAKE_COMMAND} -E make_directory ${PURE_MATH_OBJDIR}
-        # -O3 -flto: leaf scalar ABI + LTO bitcode so elemental/array sin can
-        # auto-vectorize when the final link also uses -flto (metrics, LFortran).
         COMMAND ${LFORTRAN_PURE_MATH_FC} -ffree-line-length-none -O3 -fPIC
-            -ftree-vectorize -funroll-loops -flto
+            -ftree-vectorize -funroll-loops
             -J${PURE_MATH_OBJDIR} -c ${PURE_TRIG_SRC}
             -o ${PURE_MATH_OBJDIR}/lfortran_intrinsic_trig.o
         COMMAND ${LFORTRAN_PURE_MATH_FC} -ffree-line-length-none -O3 -fPIC
-            -ftree-vectorize -funroll-loops -flto
+            -ftree-vectorize -funroll-loops
             -J${PURE_MATH_OBJDIR} -I${PURE_MATH_OBJDIR} -c ${PURE_ABI_SRC}
             -o ${PURE_MATH_OBJDIR}/lfortran_pure_math_abi.o
-        COMMAND ${LFORTRAN_PURE_MATH_FC} -flto -r
-            -o ${PURE_MATH_OBJDIR}/pure_math_lto.o
+        COMMAND ${CMAKE_AR} rcs ${PURE_MATH_A}
             ${PURE_MATH_OBJDIR}/lfortran_intrinsic_trig.o
             ${PURE_MATH_OBJDIR}/lfortran_pure_math_abi.o
-        COMMAND ${CMAKE_AR} rcs ${PURE_MATH_A}
-            ${PURE_MATH_OBJDIR}/pure_math_lto.o
         DEPENDS ${PURE_TRIG_SRC} ${PURE_ABI_SRC}
         COMMENT "Building liblfortran_runtime_pure_math.a (gfortran Sollya pure sin/cos)"
         VERBATIM

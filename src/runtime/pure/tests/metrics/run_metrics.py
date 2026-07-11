@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Pure vs host metrics with SIMD-enabled builds (no host crippling).
+"""Production-shaped pure vs host metrics.
 
-Primary: pure sin intrinsic paths — bind(c) pure_dsin (LFortran) and
-elemental yp=dsin(x) (array sin(x)). Flags: -O3 -march=native -ftree-vectorize -flto.
+Scalar: external pure ABI vs external host sin (C ABI). No whole-program
+optimization into the bench (matches LFortran link of the pure archive).
+Array: loop of pure_dsin (LFortran emission shape) vs host array sin.
 """
 from __future__ import annotations
 
@@ -68,13 +69,9 @@ def main() -> int:
         "-funroll-loops",
         "-fPIC",
     ]
-    # LTO makes pure look faster by inlining ABI into the bench; production
-    # LFortran emits external calls to _lfortran_pure_dsin. Default off.
-    # LTO required for elemental yp=dsin(x) auto-vec across TUs; scalar
-    # baseline is bind(c) host sin (not Fortran intrinsic sin).
-    gflags.append("-flto")
-    log("LTO yes (elemental array auto-vec)")
-    log("AUTO_VEC yes (no OpenMP; plain do-loops)")
+    # No -flto: production LFortran does not LTO-inline pure into user code.
+    log("LTO no (production-shaped external ABI; pure linked from .a)")
+    log("AUTO_VEC yes for array-expr host; pure external calls uninlined")
     has_omp = False
 
     objs = work / "objs"
@@ -108,10 +105,11 @@ def main() -> int:
             *gflags,
             f"-I{objs}",
             str(bench),
-            str(objs / "trig.o"),
-            str(objs / "abi.o"),
+            f"-L{work}",
+            "-llfortran_runtime_pure_math",
             "-o",
             str(bin_path),
+            "-lm",
         ]
     )
     outb = run([str(bin_path), str(prefix)])
@@ -234,13 +232,13 @@ def main() -> int:
     n15s, n15c = acc_map["n_gt_1e-15"]
 
     win_scalar = ratio_scalar_loop < 1.0
-    win_array = ratio_simd < 1.0
+    win_array = False  # LFortran-shaped array loop of pure_dsin is not expected to beat libmvec
     speed_line = (
         f"Scalar same-loop pure/host = **{ratio_scalar_loop:.3f}**"
         + (" (pure faster)." if win_scalar else ".")
-        + f" Array `dsin_v` pure/host-array = **{ratio_simd:.3f}**"
+        + f" LFortran-shaped array pure/host = **{ratio_simd:.3f}**"
         + (" (pure faster than libmvec path)." if win_array else ".")
-        + f" Elemental array `yp=dsin(x)` / `sin(x)` ratio **{ratio_elem:.3f}**."
+        + f" LFortran-shaped array (loop of external pure_dsin) ratio **{ratio_elem:.3f}** (host array-expr may use libmvec; ratio >1 means pure slower)."
         + f" bind(c) scalar ratio **{ratio_bindc:.3f}**."
     )
 
