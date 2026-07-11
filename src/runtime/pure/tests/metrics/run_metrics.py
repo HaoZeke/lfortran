@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Pure vs host metrics with SIMD-enabled builds (no host crippling).
 
-Primary speed metric: array pure elemental / OpenMP SIMD batch vs array host sin
-under -O3 -march=native -ftree-vectorize -flto (auto-vec, no OpenMP).
+Primary: pure sin intrinsic paths — bind(c) pure_dsin (LFortran) and
+elemental yp=dsin(x) (array sin(x)). Flags: -O3 -march=native -ftree-vectorize -flto.
 """
 from __future__ import annotations
 
@@ -144,7 +144,7 @@ def main() -> int:
     host_a = times.get("host_array_expr", times.get("host_array", float("nan")))
     pure_e = times.get("pure_elemental_array", float("nan"))
     pure_v = times.get("pure_omp_simd_dsin_v", float("nan"))
-    pure_best = pure_v if pure_v == pure_v else pure_e
+    pure_best = pure_e if pure_e == pure_e else pure_v
     if pure_e == pure_e and pure_e < pure_best:
         pure_best = pure_e
     ratio_best_array = pure_best / host_a if host_a and host_a > 0 else float("nan")
@@ -235,7 +235,7 @@ def main() -> int:
         + (" (pure faster)." if win_scalar else ".")
         + f" Array `dsin_v` pure/host-array = **{ratio_simd:.3f}**"
         + (" (pure faster than libmvec path)." if win_array else ".")
-        + f" Elemental `yp=dsin(x)` ratio **{ratio_elem:.3f}** (branching elemental; use `dsin_v`)."
+        + f" Elemental array `yp=dsin(x)` / `sin(x)` ratio **{ratio_elem:.3f}**."
         + f" bind(c) scalar ratio **{ratio_bindc:.3f}**."
     )
 

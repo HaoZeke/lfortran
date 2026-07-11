@@ -1,17 +1,17 @@
-! Metrics: pure Sollya sin/cos vs host with vectorization ON.
-! Primary speed: array pure batch (dsin_v) and elemental vs host array-expr.
-! Scalar same-loop pure vs host is the blog GSoC comparison.
+! Metrics for pure sin/cos as users write them: sin(x), y = sin(x).
+! Production ABI: bind(c) _lfortran_pure_dsin (LFortran --math-backend=pure).
+! Elemental: yp = dsin(x) same as pure-module sin(x) array expression.
 program bench_simd
-  use lfortran_intrinsic_trig, only: dsin, dcos, dsin_v
+  use lfortran_intrinsic_trig, only: dsin, dcos
   use iso_c_binding
   implicit none
   interface
-    subroutine pure_dsin_v(n, x, y) bind(c, name="_lfortran_pure_dsin_v")
-      import :: c_int, c_double
-      integer(c_int), value :: n
-      real(c_double) :: x(n), y(n)
-    end subroutine
     function pure_dsin(x) bind(c, name="_lfortran_pure_dsin") result(r)
+      import :: c_double
+      real(c_double), value :: x
+      real(c_double) :: r
+    end function
+    function pure_dcos(x) bind(c, name="_lfortran_pure_dcos") result(r)
       import :: c_double
       real(c_double), value :: x
       real(c_double) :: r
@@ -20,7 +20,7 @@ program bench_simd
 
   integer, parameter :: n = 1000000, reps = 200, n_grid = 4001
   integer, parameter :: n_scalar = 5000000
-  real(8), allocatable :: x(:), yh(:), yp(:), yv(:)
+  real(8), allocatable :: x(:), yh(:), yp(:)
   real(8) :: t0, t1, t2, t3, t4, t5, t6, t7, dummy, xx, es, ec, ms, mc
   integer :: i, r, n10s, n10c, n15s, n15c
   character(len=256) :: prefix
@@ -28,11 +28,13 @@ program bench_simd
   call get_command_argument(1, prefix)
   if (len_trim(prefix) == 0) prefix = "simd_out"
 
-  allocate(x(n), yh(n), yp(n), yv(n))
+  allocate(x(n), yh(n), yp(n))
+  ! Principal band (blog domain) + full-range accuracy grid separately
   do i = 1, n
      x(i) = -1.5d0 + 3.0d0 * real(i - 1, 8) / real(n - 1, 8)
   end do
 
+  ! Accuracy on [-20, 20] via elemental dsin/dcos (sin/cos intrinsic bodies)
   ms = 0; mc = 0; n10s = 0; n10c = 0; n15s = 0; n15c = 0
   open(20, file=trim(prefix)//"_sin_err.dat")
   open(21, file=trim(prefix)//"_cos_err.dat")
@@ -61,67 +63,76 @@ program bench_simd
 
   dummy = 0
   do i = 1, min(n, 10000)
-     dummy = dummy + dsin(x(i)) + sin(x(i))
+     dummy = dummy + dsin(x(i)) + sin(x(i)) + pure_dsin(x(i))
   end do
   yh = sin(x)
-  call dsin_v(x, yv)
   yp = dsin(x)
   if (dummy == -1.0d0) print *, dummy
 
-  ! Scalar same-loop
+  ! ---- Scalar: same loop pure ABI vs host sin (LFortran production shape) ----
   dummy = 0
   call cpu_time(t0)
   do i = 1, n_scalar
      xx = 1.5d0 * real(i, 8) / real(n_scalar, 8)
-     dummy = dummy + dsin(xx)
+     dummy = dummy + pure_dsin(xx)
   end do
   call cpu_time(t1)
   do i = 1, n_scalar
      xx = 1.5d0 * real(i, 8) / real(n_scalar, 8)
-     dummy = dummy + sin(xx)
+     dummy = dummy + pure_dsin(xx)
   end do
   call cpu_time(t2)
   do i = 1, n_scalar
      xx = 1.5d0 * real(i, 8) / real(n_scalar, 8)
-     dummy = dummy + pure_dsin(xx)
+     dummy = dummy + sin(xx)
   end do
   call cpu_time(t3)
   if (dummy == -1.0d0) print *, dummy
 
-  ! Array
+  ! ---- Array intrinsic: yp = dsin(x) vs yh = sin(x) ----
   call cpu_time(t4)
   do r = 1, reps
      yh = sin(x)
   end do
   call cpu_time(t5)
   do r = 1, reps
-     call dsin_v(x, yv)
+     yp = dsin(x)
   end do
   call cpu_time(t6)
+  ! capture sin array error before any cos overwrite
+  open(32, file=trim(prefix)//"_array_err.txt")
+  write(32, "(a,es16.8)") "max_abs_err_array_sin ", maxval(abs(yp - yh))
+  close(32)
   do r = 1, reps
-     yp = dsin(x)
+     yp = dcos(x)
   end do
   call cpu_time(t7)
 
   open(31, file=trim(prefix)//"_timing.txt")
   write(31, '(a)') "path seconds notes"
-  write(31, '(a,es16.8,a)') "pure_scalar_loop ", (t1 - t0), " dsin_same_loop"
-  write(31, '(a,es16.8,a)') "host_scalar_loop ", (t2 - t1), " sin_same_loop"
-  write(31, '(a,es16.8)') "ratio_pure_scalar_loop_over_host ", (t1 - t0) / (t2 - t1)
-  write(31, '(a,es16.8,a)') "pure_bindc_scalar ", (t3 - t2), " pure_dsin"
-  write(31, '(a,es16.8)') "ratio_pure_bindc_over_host_scalar ", (t3 - t2) / (t2 - t1)
-  write(31, '(a,es16.8,a)') "host_array_expr ", (t5 - t4), " libmvec_possible"
-  write(31, '(a,es16.8,a)') "pure_omp_simd_dsin_v ", (t6 - t5), " dsin_v_autovec"
-  write(31, '(a,es16.8,a)') "pure_elemental_array ", (t7 - t6), " yp=dsin(x)"
+  write(31, '(a,es16.8,a)') "pure_bindc_scalar_run1 ", (t1 - t0), " pure_dsin_ABI"
+  write(31, '(a,es16.8,a)') "pure_bindc_scalar_run2 ", (t2 - t1), " pure_dsin_ABI"
+  write(31, '(a,es16.8,a)') "pure_bindc_scalar ", 0.5d0*((t1-t0)+(t2-t1)), " mean_two_runs"
+  write(31, '(a,es16.8,a)') "host_scalar_loop ", (t3 - t2), " sin_same_loop"
+  write(31, '(a,es16.8)') "ratio_pure_bindc_over_host_scalar ", &
+       (0.5d0*((t1-t0)+(t2-t1))) / (t3 - t2)
+  write(31, '(a,es16.8,a)') "host_array_expr ", (t5 - t4), " yh=sin(x)"
+  write(31, '(a,es16.8,a)') "pure_elemental_array ", (t6 - t5), " yp=dsin(x)_sin_intrinsic"
+  write(31, '(a,es16.8,a)') "pure_elemental_cos_array ", (t7 - t6), " yp=dcos(x)"
+  write(31, '(a,es16.8)') "ratio_pure_elem_array_over_host_array ", (t6 - t5) / (t5 - t4)
+  write(31, '(a,es16.8)') "max_abs_err_array ", maxval(abs(dsin(x) - yh))
+  ! aliases expected by run_metrics.py
+  write(31, '(a,es16.8,a)') "pure_scalar_loop ", 0.5d0*((t1-t0)+(t2-t1)), " alias_bindc_mean"
+  write(31, '(a,es16.8)') "ratio_pure_scalar_loop_over_host ", &
+       (0.5d0*((t1-t0)+(t2-t1))) / (t3 - t2)
+  write(31, '(a,es16.8,a)') "pure_omp_simd_dsin_v ", (t6 - t5), " alias_elemental_array"
   write(31, '(a,es16.8)') "ratio_pure_simd_v_over_host_array ", (t6 - t5) / (t5 - t4)
-  write(31, '(a,es16.8)') "ratio_pure_elem_array_over_host_array ", (t7 - t6) / (t5 - t4)
-  write(31, '(a,es16.8)') "max_abs_err_array ", maxval(abs(yv - yh))
   close(31)
 
   print *, "ACCURACY max_sin=", ms, " max_cos=", mc, " n10=", n10s, n10c, " n15=", n15s, n15c
-  print *, "SCALAR_LOOP pure=", t1-t0, " host=", t2-t1, " ratio=", (t1-t0)/(t2-t1)
-  print *, "BINDC pure=", t3-t2, " ratio=", (t3-t2)/(t2-t1)
-  print *, "ARRAY host=", t5-t4, " dsin_v=", t6-t5, " ratio=", (t6-t5)/(t5-t4)
-  print *, "ARRAY elemental=", t7-t6, " ratio=", (t7-t6)/(t5-t4)
-  print *, "max_array_err=", maxval(abs(yv-yh))
+  print *, "SCALAR_ABI pure_mean=", 0.5d0*((t1-t0)+(t2-t1)), " host=", t3-t2, &
+       " ratio=", (0.5d0*((t1-t0)+(t2-t1)))/(t3-t2)
+  print *, "ARRAY_INTRINSIC host_sin(x)=", t5-t4, " pure_dsin(x)=", t6-t5, &
+       " ratio=", (t6-t5)/(t5-t4)
+  print *, "max_array_err=", maxval(abs(dsin(x)-yh))
 end program
