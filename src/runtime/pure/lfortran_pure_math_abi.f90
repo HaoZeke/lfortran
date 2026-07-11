@@ -1,14 +1,9 @@
-! Compile-time pure math backend ABI.
-! When --math-backend=pure, IntrinsicElementalFunction instantiate binds
-! _lfortran_pure_{s,d}{sin,cos} instead of _lfortran_{s,d}{sin,cos} (libm).
-! Selection is fixed at compile/link time; no per-call branch.
 module lfortran_pure_math_abi
-use, intrinsic :: iso_c_binding, only: c_double, c_float
-use lfortran_intrinsic_trig, only: dsin, dcos, ssin, scos
+use, intrinsic :: iso_c_binding, only: c_double, c_float, c_int
+use lfortran_intrinsic_trig, only: dsin, dcos, ssin, scos, dsin_v, dcos_v
 implicit none
 private
-public pure_dsin, pure_dcos, pure_ssin, pure_scos
-
+public pure_dsin, pure_dcos, pure_ssin, pure_scos, pure_dsin_v, pure_dcos_v
 contains
 
 real(c_double) function pure_dsin(x) bind(c, name="_lfortran_pure_dsin") result(r)
@@ -30,5 +25,19 @@ real(c_float) function pure_scos(x) bind(c, name="_lfortran_pure_scos") result(r
 real(c_float), value, intent(in) :: x
 r = scos(real(x, kind(0.0)))
 end function
+
+subroutine pure_dsin_v(n, x, y) bind(c, name="_lfortran_pure_dsin_v")
+integer(c_int), value, intent(in) :: n
+real(c_double), intent(in)  :: x(n)
+real(c_double), intent(out) :: y(n)
+call dsin_v(x, y)
+end subroutine
+
+subroutine pure_dcos_v(n, x, y) bind(c, name="_lfortran_pure_dcos_v")
+integer(c_int), value, intent(in) :: n
+real(c_double), intent(in)  :: x(n)
+real(c_double), intent(out) :: y(n)
+call dcos_v(x, y)
+end subroutine
 
 end module
