@@ -8,10 +8,12 @@
 #include <libasr/pass/intrinsic_function_registry.h>
 #include <libasr/pass/intrinsic_array_function_registry.h>
 #include <libasr/pass/intrinsic_subroutines.h>
+#include <libasr/math_backend.h>
 
 #include <libasr/asr_builder.h>
 
 #include <vector>
+#include <string>
 
 namespace LCompilers {
 
@@ -1832,6 +1834,130 @@ class ArrayOpVisitor: public ASR::CallReplacerOnExpressionsVisitor<ArrayOpVisito
         }
     }
 
+    // --math-backend=pure: lower whole-array y = sin(x) / cos(x) to one
+    // bulk call (_lfortran_pure_d{sin,cos}_v) instead of N scalar pure_dsin.
+    // That "array pure" scalar loop is the throughput failure mode vs libmvec.
+    bool try_emit_pure_bulk_trig(ASR::Assignment_t& xx, const Location& loc) {
+        if (pass_options.math_backend != "pure") {
+            return false;
+        }
+        if (!ASR::is_a<ASR::IntrinsicElementalFunction_t>(*xx.m_value)) {
+            return false;
+        }
+        ASR::IntrinsicElementalFunction_t* ief =
+            ASR::down_cast<ASR::IntrinsicElementalFunction_t>(xx.m_value);
+        using IEF = ASRUtils::IntrinsicElementalFunctions;
+        const int64_t id = ief->m_intrinsic_id;
+        if (id != static_cast<int64_t>(IEF::Sin) &&
+            id != static_cast<int64_t>(IEF::Cos)) {
+            return false;
+        }
+        if (ief->n_args != 1 || ief->m_args[0] == nullptr) {
+            return false;
+        }
+        ASR::expr_t* arg = ief->m_args[0];
+        ASR::ttype_t* arg_type = ASRUtils::expr_type(arg);
+        ASR::ttype_t* tgt_type = ASRUtils::expr_type(xx.m_target);
+        if (!ASRUtils::is_array(arg_type) || !ASRUtils::is_array(tgt_type)) {
+            return false;
+        }
+        // Skip sections / non-contiguous indexed forms; elemental path is safe.
+        if (ASR::is_a<ASR::ArraySection_t>(*arg) ||
+            ASR::is_a<ASR::ArraySection_t>(*xx.m_target)) {
+            return false;
+        }
+        ASR::ttype_t* elem = ASRUtils::extract_type(arg_type);
+        if (!ASRUtils::is_real(*elem)) {
+            return false;
+        }
+        const int kind = ASRUtils::extract_kind_from_ttype_t(elem);
+        const bool is_sin = (id == static_cast<int64_t>(IEF::Sin));
+        std::string c_name = LCompilers::math_c_runtime_bulk_symbol(
+            is_sin ? "sin" : "cos", kind, false, "pure");
+        if (c_name.empty()) {
+            return false;
+        }
+
+        // Interface lives at translation-unit global scope.
+        SymbolTable* global = current_scope;
+        while (global->parent != nullptr) {
+            global = global->parent;
+        }
+
+        ASRUtils::ASRBuilder b(al, loc);
+        ASR::symbol_t* bulk_sym = global->get_symbol(c_name);
+        if (bulk_sym == nullptr) {
+            ASR::ttype_t* int_t = ASRUtils::TYPE(
+                ASR::make_Integer_t(al, loc, 4));
+            ASR::ttype_t* real_t = ASRUtils::TYPE(
+                ASR::make_Real_t(al, loc, kind));
+            // Assumed-size-ish empty dims + BindC → PointerArray (C data ptr).
+            Vec<ASR::dimension_t> empty_dims;
+            empty_dims.reserve(al, 1);
+            ASR::dimension_t d;
+            d.loc = loc;
+            d.m_start = nullptr;
+            d.m_length = nullptr;
+            empty_dims.push_back(al, d);
+            ASR::ttype_t* arr_t = ASRUtils::make_Array_t_util(
+                al, loc, real_t, empty_dims.p, empty_dims.size(),
+                ASR::abiType::BindC, true /*is_argument*/,
+                ASR::array_physical_typeType::PointerArray, true);
+
+            Vec<ASR::ttype_t*> param_types;
+            param_types.reserve(al, 3);
+            param_types.push_back(al, int_t);
+            param_types.push_back(al, arr_t);
+            param_types.push_back(al, arr_t);
+            std::vector<std::string> param_names = {"n", "x", "y"};
+            std::vector<bool> is_value = {true, false, false};
+            bulk_sym = b.create_c_subroutine_interface(
+                c_name, global, param_types, param_names, is_value);
+            global->add_symbol(c_name, bulk_sym);
+        }
+
+        // n = size(arg) as int32 (c_int value).
+        ASR::ttype_t* int_t = ASRUtils::TYPE(ASR::make_Integer_t(al, loc, 4));
+        ASR::expr_t* n_expr = ASRUtils::EXPR(ASRUtils::make_ArraySize_t_util(
+            al, loc, arg, nullptr, int_t, nullptr));
+        // Physical cast args to PointerArray for BindC data pointer ABI.
+        auto as_pointer_array = [&](ASR::expr_t* e) -> ASR::expr_t* {
+            ASR::ttype_t* et = ASRUtils::expr_type(e);
+            if (!ASRUtils::is_array(et)) {
+                return e;
+            }
+            ASR::Array_t* arr = ASR::down_cast<ASR::Array_t>(
+                ASRUtils::type_get_past_allocatable(
+                    ASRUtils::type_get_past_pointer(et)));
+            if (arr->m_physical_type == ASR::array_physical_typeType::PointerArray) {
+                return e;
+            }
+            ASR::ttype_t* ptr_type = ASRUtils::duplicate_type(
+                al, et, nullptr, ASR::array_physical_typeType::PointerArray, true);
+            return ASRUtils::EXPR(ASRUtils::make_ArrayPhysicalCast_t_util(
+                al, loc, e, arr->m_physical_type,
+                ASR::array_physical_typeType::PointerArray, ptr_type, nullptr));
+        };
+        ASR::expr_t* x_arg = as_pointer_array(arg);
+        ASR::expr_t* y_arg = as_pointer_array(xx.m_target);
+
+        Vec<ASR::call_arg_t> call_args;
+        call_args.reserve(al, 3);
+        ASR::call_arg_t a0, a1, a2;
+        a0.loc = loc; a0.m_value = n_expr;
+        a1.loc = loc; a1.m_value = x_arg;
+        a2.loc = loc; a2.m_value = y_arg;
+        call_args.push_back(al, a0);
+        call_args.push_back(al, a1);
+        call_args.push_back(al, a2);
+
+        ASR::stmt_t* call = ASRUtils::STMT(ASRUtils::make_SubroutineCall_t_util(
+            al, loc, bulk_sym, nullptr, call_args.p, call_args.size(),
+            nullptr, nullptr, false, current_scope));
+        pass_result.push_back(al, call);
+        remove_original_stmt = true;
+        return true;
+    }
 
     void visit_Assignment(const ASR::Assignment_t& x) {
         if (ASRUtils::is_simd_array(x.m_target)) {
@@ -1864,6 +1990,10 @@ class ArrayOpVisitor: public ASR::CallReplacerOnExpressionsVisitor<ArrayOpVisito
             std::find(skip_exprs.begin(), skip_exprs.end(), xx.m_value->type) != skip_exprs.end() ||
             (ASRUtils::is_simd_array(xx.m_target) && ASRUtils::is_simd_array(xx.m_value)) ) {
             return ;
+        }
+        // Pure bulk array sin/cos before elemental scalarization.
+        if (try_emit_pure_bulk_trig(xx, x.base.base.loc)) {
+            return;
         }
         bool is_target_assumed_rank = (ASR::is_a<ASR::ArrayPhysicalCast_t>(*xx.m_target) && 
             ASR::down_cast<ASR::ArrayPhysicalCast_t>(xx.m_target)->m_old == ASR::array_physical_typeType::AssumedRankArray) 
@@ -2185,6 +2315,8 @@ class ArrayOpVisitor: public ASR::CallReplacerOnExpressionsVisitor<ArrayOpVisito
 
 void pass_replace_array_op(Allocator &al, ASR::TranslationUnit_t &unit,
                            const LCompilers::PassOptions& pass_options) {
+    // Mirror intrinsic_function: pure bulk array_op needs the active backend.
+    LCompilers::math_backend_policy() = pass_options.math_backend;
     ArrayOpVisitor v(al, pass_options);
     v.call_replacer_on_value = false;
     v.visit_TranslationUnit(unit);

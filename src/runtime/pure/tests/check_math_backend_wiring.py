@@ -24,10 +24,17 @@ checks = [
     (root / "src/bin/lfortran.cpp", r"lfortran_runtime_pure_math", "link pure math lib"),
     (root / "src/runtime/pure/lfortran_pure_math_abi.f90", r"_lfortran_pure_dsin", "pure ABI export"),
     (root / "src/runtime/pure/lfortran_pure_math_abi.f90", r"_lfortran_pure_dcos", "pure cos ABI export"),
+    (root / "src/runtime/pure/lfortran_pure_math_abi.f90", r"_lfortran_pure_dsin_v", "pure bulk sin ABI"),
+    (root / "src/runtime/pure/lfortran_pure_math_abi.f90", r"_lfortran_pure_dcos_v", "pure bulk cos ABI"),
+    (root / "src/runtime/pure/lfortran_pure_math_abi.f90", r"ieee_arithmetic", "pure ABI uses ieee_arithmetic"),
+    (root / "src/libasr/math_backend.h", r"math_c_runtime_bulk_symbol", "bulk symbol helper"),
+    (root / "src/libasr/pass/array_op.cpp", r"try_emit_pure_bulk_trig", "array_op pure bulk wire"),
+    (root / "src/libasr/pass/array_op.cpp", r"_lfortran_pure_dsin_v|math_c_runtime_bulk_symbol", "array_op refs bulk pure"),
     # Elemental dsin/dcos are the sin/cos intrinsic bodies (fully inlined Horner)
     (root / "src/runtime/pure/lfortran_intrinsic_trig.f90", r"elemental pure function dsin", "pure sin elemental"),
     (root / "src/runtime/pure/lfortran_intrinsic_trig.f90", r"elemental pure function dcos", "pure cos elemental"),
     (root / "src/runtime/pure/lfortran_intrinsic_trig.f90", r"inv_pi", "pure range reduction"),
+    (root / "src/runtime/pure/lfortran_intrinsic_trig.f90", r"ieee_arithmetic", "trig uses ieee_arithmetic not iso_env for NaN"),
 ]
 
 failed = []

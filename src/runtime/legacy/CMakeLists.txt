@@ -101,8 +101,8 @@ if(LFORTRAN_PURE_MATH_FC)
     set(PURE_TRIG_SRC ${CMAKE_CURRENT_SOURCE_DIR}/../pure/lfortran_intrinsic_trig.f90)
     set(PURE_ABI_SRC  ${CMAKE_CURRENT_SOURCE_DIR}/../pure/lfortran_pure_math_abi.f90)
 
-    # Portable object archive (no -flto): LFortran links this with clang/g++
-    # and does not pass -flto. LTO IR in a bare ar archive is not portable.
+    # Pure Fortran only. -O3; No LTO IR in
+    # the archive (LFortran links with clang/g++ without -flto).
     add_custom_command(
         OUTPUT ${PURE_MATH_A}
         COMMAND ${CMAKE_COMMAND} -E make_directory ${PURE_MATH_OBJDIR}
@@ -118,7 +118,7 @@ if(LFORTRAN_PURE_MATH_FC)
             ${PURE_MATH_OBJDIR}/lfortran_intrinsic_trig.o
             ${PURE_MATH_OBJDIR}/lfortran_pure_math_abi.o
         DEPENDS ${PURE_TRIG_SRC} ${PURE_ABI_SRC}
-        COMMENT "Building liblfortran_runtime_pure_math.a (gfortran Sollya pure sin/cos)"
+        COMMENT "Building liblfortran_runtime_pure_math.a (pure Fortran Sollya sin/cos)"
         VERBATIM
     )
     add_custom_target(lfortran_runtime_pure_math ALL DEPENDS ${PURE_MATH_A})
@@ -126,7 +126,6 @@ if(LFORTRAN_PURE_MATH_FC)
         DESTINATION ${CMAKE_INSTALL_LIBDIR}
         RENAME liblfortran_runtime_pure_math.a
     )
-    # Also stage into build tree runtime dir (same as SHARED lib output)
     install(FILES ${PURE_MATH_A}
         DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/..
         OPTIONAL

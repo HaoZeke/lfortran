@@ -81,18 +81,10 @@ def main() -> int:
     bench = metrics_dir / "bench_simd.f90"
 
     run([gfortran, *gflags, f"-J{objs}", "-c", str(trig), "-o", str(objs / "trig.o")])
-    run(
-        [
-            gfortran,
-            *gflags,
-            f"-J{objs}",
-            f"-I{objs}",
-            "-c",
-            str(abi),
-            "-o",
-            str(objs / "abi.o"),
-        ]
-    )
+    run([
+        gfortran, *gflags, f"-J{objs}", f"-I{objs}",
+        "-c", str(abi), "-o", str(objs / "abi.o"),
+    ])
     archive = work / "liblfortran_runtime_pure_math.a"
     run(["ar", "rcs", str(archive), str(objs / "trig.o"), str(objs / "abi.o")])
     log(f"ARCHIVE {archive} size={archive.stat().st_size}")
@@ -232,13 +224,13 @@ def main() -> int:
     n15s, n15c = acc_map["n_gt_1e-15"]
 
     win_scalar = ratio_scalar_loop < 1.0
-    win_array = False  # LFortran-shaped array loop of pure_dsin is not expected to beat libmvec
+    win_array = ratio_simd < 1.0  # pure_dsin_v bulk vs host array-expr
     speed_line = (
         f"Scalar same-loop pure/host = **{ratio_scalar_loop:.3f}**"
         + (" (pure faster)." if win_scalar else ".")
         + f" LFortran-shaped array pure/host = **{ratio_simd:.3f}**"
         + (" (pure faster than libmvec path)." if win_array else ".")
-        + f" LFortran-shaped array (loop of external pure_dsin) ratio **{ratio_elem:.3f}** (host array-expr may use libmvec; ratio >1 means pure slower)."
+        + f" Array bulk `pure_dsin_v` ratio **{ratio_elem:.3f}** vs host `y=sin(x)`."
         + f" bind(c) scalar ratio **{ratio_bindc:.3f}**."
     )
 

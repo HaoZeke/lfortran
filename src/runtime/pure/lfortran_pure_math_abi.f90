@@ -1,8 +1,17 @@
-! Production pure math ABI. LFortran --math-backend=pure maps sin/cos here.
-! Scalar: leaf Horner / Cody–Waite (no calls into elemental module).
-! Batch: bind(c) entry + contained work routine (auto-vec without LTO).
+! Production pure math ABI — pure Fortran only.
+! LFortran --math-backend=pure maps sin/cos to these bind(C) symbols.
+!
+! Scalar pure_dsin/pure_dcos: leaf Horner + Cody–Waite (no nested calls).
+! Array pure_dsin_v: bulk kernel in pure Fortran. Principal-band inputs use a
+! vectorizable poly loop; larger |x| uses Cody–Waite. This is not a loop of
+! scalar ABI calls (that path is the slow "array pure" failure mode).
+!
+! IEEE specials use F2008 ieee_arithmetic (iso_fortran_env does not define
+! NaN/Inf predicates). NaN and ±Inf → quiet NaN.
 module lfortran_pure_math_abi
 use, intrinsic :: iso_c_binding, only: c_double, c_float, c_int
+use, intrinsic :: ieee_arithmetic, only: ieee_is_nan, ieee_is_finite, &
+    ieee_value, ieee_quiet_nan
 implicit none
 private
 public pure_dsin, pure_dcos, pure_ssin, pure_scos, pure_dsin_v, pure_dcos_v
@@ -32,10 +41,19 @@ real(dp), parameter :: C8 = 4.5963233219481481e-14_dp
 
 contains
 
+elemental pure function qnan() result(r)
+real(dp) :: r
+r = ieee_value(0.0_dp, ieee_quiet_nan)
+end function
+
 real(c_double) function pure_dsin(x) bind(c, name="_lfortran_pure_dsin") result(r)
 real(c_double), value, intent(in) :: x
 real(dp) :: z, y, sgn, an
 integer :: n
+if (ieee_is_nan(x) .or. .not. ieee_is_finite(x)) then
+    r = qnan()
+    return
+end if
 if (abs(x) <= halfpi) then
     z = x * x
     r = x * (1.0_dp + z*(S1 + z*(S2 + z*(S3 + z*(S4 + z*(S5 + z*(S6 + z*S7)))))))
@@ -53,6 +71,10 @@ real(c_double) function pure_dcos(x) bind(c, name="_lfortran_pure_dcos") result(
 real(c_double), value, intent(in) :: x
 real(dp) :: z, y, sgn, an
 integer :: n
+if (ieee_is_nan(x) .or. .not. ieee_is_finite(x)) then
+    r = qnan()
+    return
+end if
 if (abs(x) <= halfpi) then
     z = x * x
     r = 1.0_dp + z*(C1 + z*(C2 + z*(C3 + z*(C4 + z*(C5 + z*(C6 + z*(C7 + z*C8)))))))
@@ -76,56 +98,114 @@ real(c_float), value, intent(in) :: x
 r = real(pure_dcos(real(x, c_double)), c_float)
 end function
 
+! Non-bind(C) work: plain do-loops auto-vectorize under -O3.
+subroutine work_sin_poly(n, x, y)
+integer, intent(in) :: n
+real(dp), intent(in) :: x(n)
+real(dp), intent(out) :: y(n)
+integer :: i
+real(dp) :: xi, z
+do i = 1, n
+    xi = x(i)
+    z = xi * xi
+    y(i) = xi * (1.0_dp + z*(S1 + z*(S2 + z*(S3 + z*(S4 + z*(S5 + z*(S6 + z*S7)))))))
+end do
+end subroutine
+
+subroutine work_sin_cw(n, x, y)
+integer, intent(in) :: n
+real(dp), intent(in) :: x(n)
+real(dp), intent(out) :: y(n)
+integer :: i, ni
+real(dp) :: xi, z, yr, sgn, an
+do i = 1, n
+    xi = x(i)
+    ni = nint(xi * inv_pi)
+    an = real(ni, dp)
+    yr = (xi - an * pi_c1) - an * pi_c2
+    sgn = 1.0_dp - 2.0_dp * real(iand(ni, 1), dp)
+    z = yr * yr
+    y(i) = sgn * yr * (1.0_dp + z*(S1 + z*(S2 + z*(S3 + z*(S4 + z*(S5 + z*(S6 + z*S7)))))))
+end do
+end subroutine
+
+subroutine work_cos_poly(n, x, y)
+integer, intent(in) :: n
+real(dp), intent(in) :: x(n)
+real(dp), intent(out) :: y(n)
+integer :: i
+real(dp) :: xi, z
+do i = 1, n
+    xi = x(i)
+    z = xi * xi
+    y(i) = 1.0_dp + z*(C1 + z*(C2 + z*(C3 + z*(C4 + z*(C5 + z*(C6 + z*(C7 + z*C8)))))))
+end do
+end subroutine
+
+subroutine work_cos_cw(n, x, y)
+integer, intent(in) :: n
+real(dp), intent(in) :: x(n)
+real(dp), intent(out) :: y(n)
+integer :: i, ni
+real(dp) :: xi, z, yr, sgn, an
+do i = 1, n
+    xi = x(i)
+    ni = nint(xi * inv_pi)
+    an = real(ni, dp)
+    yr = (xi - an * pi_c1) - an * pi_c2
+    sgn = 1.0_dp - 2.0_dp * real(iand(ni, 1), dp)
+    z = yr * yr
+    y(i) = sgn * (1.0_dp + z*(C1 + z*(C2 + z*(C3 + z*(C4 + z*(C5 + z*(C6 + z*(C7 + z*C8))))))))
+end do
+end subroutine
+
+! Array pure entry: bulk kernel, not N scalar ABI calls.
+! LFortran array_op wires y=sin(x)/cos(x) here under --math-backend=pure.
 subroutine pure_dsin_v(n, x, y) bind(c, name="_lfortran_pure_dsin_v")
 integer(c_int), value, intent(in) :: n
 real(c_double), intent(in)  :: x(n)
 real(c_double), intent(out) :: y(n)
-integer :: nn
+integer :: i, nn
+real(dp) :: axmax
+if (n <= 0) return
 nn = n
-call pure_dsin_v_work(nn, x, y)
-contains
-    subroutine pure_dsin_v_work(n, x, y)
-    integer, intent(in) :: n
-    real(dp), intent(in)  :: x(n)
-    real(dp), intent(out) :: y(n)
-    integer :: i, ni
-    real(dp) :: xi, z, yr, sgn, an
-    do i = 1, n
-        xi = x(i)
-        ni = nint(xi * inv_pi)
-        an = real(ni, dp)
-        yr = (xi - an * pi_c1) - an * pi_c2
-        sgn = 1.0_dp - 2.0_dp * real(iand(ni, 1), dp)
-        z = yr * yr
-        y(i) = sgn * yr * (1.0_dp + z*(S1 + z*(S2 + z*(S3 + z*(S4 + z*(S5 + z*(S6 + z*S7)))))))
+axmax = 0.0_dp
+do i = 1, nn
+    axmax = max(axmax, abs(x(i)))
+end do
+! NaN or ±Inf: element-wise scalar path (ieee specials). Poly/CW assume finite.
+if (axmax /= axmax .or. .not. ieee_is_finite(axmax)) then
+    do i = 1, nn
+        y(i) = pure_dsin(x(i))
     end do
-    end subroutine
+else if (axmax <= halfpi) then
+    call work_sin_poly(nn, x, y)
+else
+    call work_sin_cw(nn, x, y)
+end if
 end subroutine
 
 subroutine pure_dcos_v(n, x, y) bind(c, name="_lfortran_pure_dcos_v")
 integer(c_int), value, intent(in) :: n
 real(c_double), intent(in)  :: x(n)
 real(c_double), intent(out) :: y(n)
-integer :: nn
+integer :: i, nn
+real(dp) :: axmax
+if (n <= 0) return
 nn = n
-call pure_dcos_v_work(nn, x, y)
-contains
-    subroutine pure_dcos_v_work(n, x, y)
-    integer, intent(in) :: n
-    real(dp), intent(in)  :: x(n)
-    real(dp), intent(out) :: y(n)
-    integer :: i, ni
-    real(dp) :: xi, z, yr, sgn, an
-    do i = 1, n
-        xi = x(i)
-        ni = nint(xi * inv_pi)
-        an = real(ni, dp)
-        yr = (xi - an * pi_c1) - an * pi_c2
-        sgn = 1.0_dp - 2.0_dp * real(iand(ni, 1), dp)
-        z = yr * yr
-        y(i) = sgn * (1.0_dp + z*(C1 + z*(C2 + z*(C3 + z*(C4 + z*(C5 + z*(C6 + z*(C7 + z*C8))))))))
+axmax = 0.0_dp
+do i = 1, nn
+    axmax = max(axmax, abs(x(i)))
+end do
+if (axmax /= axmax .or. .not. ieee_is_finite(axmax)) then
+    do i = 1, nn
+        y(i) = pure_dcos(x(i))
     end do
-    end subroutine
+else if (axmax <= halfpi) then
+    call work_cos_poly(nn, x, y)
+else
+    call work_cos_cw(nn, x, y)
+end if
 end subroutine
 
 end module

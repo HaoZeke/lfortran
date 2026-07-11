@@ -1,13 +1,15 @@
-! Pure Fortran sin/cos — Sollya polynomials, performance-first path.
+! Pure Fortran elemental sin/cos (Sollya polynomials).
+! Production ABI: lfortran_pure_math_abi.f90 (bind(C) pure_dsin / pure_dsin_v).
 !
-! Public API is the sin/cos intrinsics (elemental dsin/dcos). Users write
-! sin(x) and y = sin(x); no separate batch API required.
-! Elemental bodies are fully inlined branchless Cody–Waite + Horner so
-! array expressions auto-vectorize under -O3 -march=native -ftree-vectorize.
-!
-! Polynomials: sollya/sin_odd.sollya, sollya/cos_even.sollya (leading monic).
+! IEEE specials: F2003/F2008 ieee_arithmetic (NOT iso_fortran_env).
+! iso_fortran_env only provides kinds, I/O units, compiler_version, etc.
+! NaN/Inf predicates and quiet NaN values live in ieee_arithmetic:
+!   ieee_is_nan, ieee_is_finite, ieee_value(..., ieee_quiet_nan).
+! sin/cos of NaN or ±Inf → quiet NaN.
 module lfortran_intrinsic_trig
 use, intrinsic :: iso_fortran_env, only: sp => real32, dp => real64
+use, intrinsic :: ieee_arithmetic, only: ieee_is_nan, ieee_is_finite, &
+    ieee_value, ieee_quiet_nan
 implicit none
 private
 public sin, cos, dsin, dcos, ssin, scos
@@ -44,11 +46,19 @@ end interface
 
 contains
 
-! sin(x) = (-1)^n * sin(y), y = x - n*pi (Cody–Waite), fully inlined
+elemental pure function qnan() result(r)
+real(dp) :: r
+r = ieee_value(0.0_dp, ieee_quiet_nan)
+end function
+
 elemental pure function dsin(x) result(r)
 real(dp), intent(in) :: x
 real(dp) :: r, y, z, sgn, an
 integer :: n
+if (ieee_is_nan(x) .or. .not. ieee_is_finite(x)) then
+    r = qnan()
+    return
+end if
 n = nint(x * inv_pi)
 an = real(n, dp)
 y = (x - an * pi_c1) - an * pi_c2
@@ -57,11 +67,14 @@ z = y * y
 r = sgn * y * (1.0_dp + z*(S1 + z*(S2 + z*(S3 + z*(S4 + z*(S5 + z*(S6 + z*S7)))))))
 end function
 
-! cos(x) = (-1)^n * cos(y), same y — dedicated even Horner (not sin(x+pi/2))
 elemental pure function dcos(x) result(r)
 real(dp), intent(in) :: x
 real(dp) :: r, y, z, sgn, an
 integer :: n
+if (ieee_is_nan(x) .or. .not. ieee_is_finite(x)) then
+    r = qnan()
+    return
+end if
 n = nint(x * inv_pi)
 an = real(n, dp)
 y = (x - an * pi_c1) - an * pi_c2
@@ -82,55 +95,47 @@ real(sp) :: r
 r = real(dcos(real(x, dp)), sp)
 end function
 
-! Contained work (not elemental call) so auto-vec works without LTO
+! Contiguous bulk: plain do with CW (auto-vec when not blocked by bind(c) ABI)
 subroutine dsin_v(x, y)
 real(dp), intent(in)  :: x(:)
 real(dp), intent(out) :: y(:)
-integer :: n
+integer :: i, n, ni
+real(dp) :: xi, z, yr, sgn, an
 n = min(size(x), size(y))
-call dsin_v_work(n, x, y)
-contains
-    subroutine dsin_v_work(n, x, y)
-    integer, intent(in) :: n
-    real(dp), intent(in)  :: x(n)
-    real(dp), intent(out) :: y(n)
-    integer :: i, ni
-    real(dp) :: xi, z, yr, sgn, an
-    do i = 1, n
-        xi = x(i)
-        ni = nint(xi * inv_pi)
-        an = real(ni, dp)
-        yr = (xi - an * pi_c1) - an * pi_c2
-        sgn = 1.0_dp - 2.0_dp * real(iand(ni, 1), dp)
-        z = yr * yr
-        y(i) = sgn * yr * (1.0_dp + z*(S1 + z*(S2 + z*(S3 + z*(S4 + z*(S5 + z*(S6 + z*S7)))))))
-    end do
-    end subroutine
+do i = 1, n
+    xi = x(i)
+    if (ieee_is_nan(xi) .or. .not. ieee_is_finite(xi)) then
+        y(i) = qnan()
+        cycle
+    end if
+    ni = nint(xi * inv_pi)
+    an = real(ni, dp)
+    yr = (xi - an * pi_c1) - an * pi_c2
+    sgn = 1.0_dp - 2.0_dp * real(iand(ni, 1), dp)
+    z = yr * yr
+    y(i) = sgn * yr * (1.0_dp + z*(S1 + z*(S2 + z*(S3 + z*(S4 + z*(S5 + z*(S6 + z*S7)))))))
+end do
 end subroutine
 
 subroutine dcos_v(x, y)
 real(dp), intent(in)  :: x(:)
 real(dp), intent(out) :: y(:)
-integer :: n
+integer :: i, n, ni
+real(dp) :: xi, z, yr, sgn, an
 n = min(size(x), size(y))
-call dcos_v_work(n, x, y)
-contains
-    subroutine dcos_v_work(n, x, y)
-    integer, intent(in) :: n
-    real(dp), intent(in)  :: x(n)
-    real(dp), intent(out) :: y(n)
-    integer :: i, ni
-    real(dp) :: xi, z, yr, sgn, an
-    do i = 1, n
-        xi = x(i)
-        ni = nint(xi * inv_pi)
-        an = real(ni, dp)
-        yr = (xi - an * pi_c1) - an * pi_c2
-        sgn = 1.0_dp - 2.0_dp * real(iand(ni, 1), dp)
-        z = yr * yr
-        y(i) = sgn * (1.0_dp + z*(C1 + z*(C2 + z*(C3 + z*(C4 + z*(C5 + z*(C6 + z*(C7 + z*C8))))))))
-    end do
-    end subroutine
+do i = 1, n
+    xi = x(i)
+    if (ieee_is_nan(xi) .or. .not. ieee_is_finite(xi)) then
+        y(i) = qnan()
+        cycle
+    end if
+    ni = nint(xi * inv_pi)
+    an = real(ni, dp)
+    yr = (xi - an * pi_c1) - an * pi_c2
+    sgn = 1.0_dp - 2.0_dp * real(iand(ni, 1), dp)
+    z = yr * yr
+    y(i) = sgn * (1.0_dp + z*(C1 + z*(C2 + z*(C3 + z*(C4 + z*(C5 + z*(C6 + z*(C7 + z*C8))))))))
+end do
 end subroutine
 
 end module

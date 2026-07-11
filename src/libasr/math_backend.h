@@ -26,6 +26,19 @@ inline std::string math_c_runtime_symbol(const std::string &name, int kind,
     return (kind == 4) ? ("_lfortran_s" + name) : ("_lfortran_d" + name);
 }
 
+// Bulk array pure sin/cos (kind 8 only). Empty if not applicable.
+// LFortran array_op lowers y=sin(x)/cos(x) to these under --math-backend=pure
+// so production is not N scalar external pure_dsin calls ("array pure" failure mode).
+inline std::string math_c_runtime_bulk_symbol(const std::string &name, int kind,
+        bool is_complex, const std::string &backend = math_backend_policy()) {
+    if (is_complex || backend != "pure" || kind != 8) {
+        return "";
+    }
+    if (name == "sin") return "_lfortran_pure_dsin_v";
+    if (name == "cos") return "_lfortran_pure_dcos_v";
+    return "";
+}
+
 } // namespace LCompilers
 
 #endif // LIBASR_MATH_BACKEND_H

@@ -20,6 +20,12 @@ int main() {
     assert(math_c_runtime_symbol("sin", 4, false, "pure") == "_lfortran_pure_ssin");
     assert(math_c_runtime_symbol("sin", 8, true, "pure") == "_lfortran_zsin");
     assert(math_c_runtime_symbol("exp", 8, false, "pure") == "_lfortran_dexp");
+    using LCompilers::math_c_runtime_bulk_symbol;
+    assert(math_c_runtime_bulk_symbol("sin", 8, false, "pure") == "_lfortran_pure_dsin_v");
+    assert(math_c_runtime_bulk_symbol("cos", 8, false, "pure") == "_lfortran_pure_dcos_v");
+    assert(math_c_runtime_bulk_symbol("sin", 4, false, "pure") == "");
+    assert(math_c_runtime_bulk_symbol("sin", 8, false, "libm") == "");
+    assert(math_c_runtime_bulk_symbol("sin", 8, true, "pure") == "");
 
     // policy default + mutation (compile-time selection for a pass)
     assert(math_backend_policy() == "libm"
