@@ -23,7 +23,11 @@ checks = [
     (root / "src/bin/lfortran_command_line_parser.cpp", r"--math-backend", "CLI flag"),
     (root / "src/bin/lfortran.cpp", r"lfortran_runtime_pure_math", "link pure math lib"),
     (root / "src/runtime/pure/lfortran_pure_math_abi.f90", r"_lfortran_pure_dsin", "pure ABI export"),
-    (root / "src/runtime/pure/lfortran_intrinsic_trig.f90", r"kernel_dcos", "pure cos kernel"),
+    (root / "src/runtime/pure/lfortran_pure_math_abi.f90", r"_lfortran_pure_dcos", "pure cos ABI export"),
+    # Elemental dsin/dcos are the sin/cos intrinsic bodies (fully inlined Horner)
+    (root / "src/runtime/pure/lfortran_intrinsic_trig.f90", r"elemental pure function dsin", "pure sin elemental"),
+    (root / "src/runtime/pure/lfortran_intrinsic_trig.f90", r"elemental pure function dcos", "pure cos elemental"),
+    (root / "src/runtime/pure/lfortran_intrinsic_trig.f90", r"inv_pi", "pure range reduction"),
 ]
 
 failed = []
