@@ -6,7 +6,7 @@ module lfortran_intrinsic_trig
 use, intrinsic :: iso_fortran_env, only: sp => real32, dp => real64
 implicit none
 private
-public sin, cos, dsin, dcos
+public sin, cos, dsin, dcos, ssin, scos
 
 real(dp), parameter :: pi = 3.1415926535897932384626433832795_dp
 

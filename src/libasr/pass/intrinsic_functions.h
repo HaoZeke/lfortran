@@ -276,24 +276,10 @@ static inline ASR::expr_t* instantiate_functions(Allocator &al,
         const Location &loc, SymbolTable *scope, std::string new_name,
         ASR::ttype_t *arg_type, ASR::ttype_t *return_type,
         Vec<ASR::call_arg_t>& new_args, int64_t /*overload_id*/, int /*index_kind*/) {
-    std::string c_func_name;
-    switch (arg_type->type) {
-        case ASR::ttypeType::Complex : {
-            if (ASRUtils::extract_kind_from_ttype_t(arg_type) == 4) {
-                c_func_name = "_lfortran_c" + new_name;
-            } else {
-                c_func_name = "_lfortran_z" + new_name;
-            }
-            break;
-        }
-        default : {
-            if (ASRUtils::extract_kind_from_ttype_t(arg_type) == 4) {
-                c_func_name = "_lfortran_s" + new_name;
-            } else {
-                c_func_name = "_lfortran_d" + new_name;
-            }
-        }
-    }
+    const int arg_kind = ASRUtils::extract_kind_from_ttype_t(arg_type);
+    const bool is_complex = (arg_type->type == ASR::ttypeType::Complex);
+    std::string c_func_name = LCompilers::math_c_runtime_symbol(
+        new_name, arg_kind, is_complex, LCompilers::math_backend_policy());
     new_name = "_lcompilers_" + new_name + "_" + type_to_str_python_expr(arg_type, new_args[0].m_value);
 
     declare_basic_variables(new_name);

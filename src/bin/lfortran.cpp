@@ -1993,6 +1993,12 @@ int link_executable(const std::vector<std::string> &infiles,
             extra_library_flags += " -l" + s;
         }
     }
+    // Pure Sollya math backend: link owned sin/cos ABI before -lm (no per-call switch).
+    std::string pure_math_link;
+    if (compiler_options.math_backend == "pure"
+        || compiler_options.po.math_backend == "pure") {
+        pure_math_link = " -llfortran_runtime_pure_math";
+    }
     if(static_executable && shared_executable) {
         std::cout << "Cannot use static_executable and shared_executable together" << std::endl;
         return 10;
@@ -2106,7 +2112,7 @@ int link_executable(const std::vector<std::string> &infiles,
             if (!extra_linker_flags.empty()) {
                 compile_cmd += extra_linker_flags;
             }
-            compile_cmd += " -l" + runtime_lib + " -lm";
+            compile_cmd += " -l" + runtime_lib + pure_math_link + " -lm";
             if (compiler_options.openmp && CC.find("clang" ) != std::string::npos) {
                 std::string openmp_shared_library = compiler_options.openmp_lib_dir;
                 std::string omp_cmd =  " -L" + openmp_shared_library + " -Wl,-rpath," + openmp_shared_library + " -lomp";
@@ -2194,7 +2200,7 @@ int link_executable(const std::vector<std::string> &infiles,
                 compile_cmd += cuda_kernel_obj + " " + cuda_runtime_obj;
                 compile_cmd += " -L" + base_path
                     + " -Xlinker -rpath -Xlinker " + base_path
-                    + " -l" + runtime_lib + " -lm";
+                    + " -l" + runtime_lib + pure_math_link + " -lm";
             }
             run_cmd = "./" + outfile;
         }
@@ -2256,7 +2262,7 @@ int link_executable(const std::vector<std::string> &infiles,
         if (!extra_linker_flags.empty()) {
             cmd += extra_linker_flags;
         }
-        cmd += " -l" + runtime_lib + " -lm";
+        cmd += " -l" + runtime_lib + pure_math_link + " -lm";
         if (verbose) {
             std::cout << cmd << std::endl;
         }
@@ -2319,7 +2325,7 @@ int link_executable(const std::vector<std::string> &infiles,
         }
         cmd += " -L" + base_path
             + " -Wl,-rpath," + base_path;
-        cmd += " -l" + runtime_lib + " -lm";
+        cmd += " -l" + runtime_lib + pure_math_link + " -lm";
         if (verbose) {
             std::cout << cmd << std::endl;
         }

@@ -320,6 +320,10 @@ namespace LCompilers::CommandLineInterface {
 
         // Backend and code generation-related flags
         app.add_option("--backend", opts.arg_backend, "Select a backend (llvm, c, cpp, x86, wasm, fortran, mlir)")->capture_default_str()->group(group_backend_codegen_options);
+        app.add_option("--math-backend", compiler_options.po.math_backend,
+            "Math runtime backend: libm (default, host math) or pure (owned Sollya sin/cos)")
+            ->capture_default_str()->group(group_backend_codegen_options);
+
         app.add_flag("--openmp", compiler_options.openmp, "Enable openmp")->group(group_backend_codegen_options);
         app.add_flag("--target-offload", compiler_options.target_offload_enabled, "Enable Target Offloading")->group(group_backend_codegen_options);
         app.add_flag("--openmp-lib-dir", compiler_options.openmp_lib_dir, "Pass path to openmp library")->capture_default_str()->group(group_backend_codegen_options);
@@ -482,6 +486,16 @@ namespace LCompilers::CommandLineInterface {
         compiler_options.prescan = !opts.arg_no_prescan;
         // set openmp in pass options
         compiler_options.po.openmp = compiler_options.openmp;
+
+        // Math backend: compile-time policy for owned pure vs host libm.
+        if (compiler_options.po.math_backend != "libm"
+            && compiler_options.po.math_backend != "pure") {
+            throw lc::LCompilersException(
+                "The option `--math-backend=" + compiler_options.po.math_backend
+                + "` is not supported; use libm or pure"
+            );
+        }
+        compiler_options.math_backend = compiler_options.po.math_backend;
 
         // set gpu offloading in pass options
         if (compiler_options.gpu_backend == "metal") {

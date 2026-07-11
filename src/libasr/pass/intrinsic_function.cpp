@@ -415,6 +415,8 @@ class ReplaceFunctionCallReturningArrayVisitor : public ASR::CallReplacerOnExpre
 
 void pass_replace_intrinsic_function(Allocator &al, ASR::TranslationUnit_t &unit,
                             const LCompilers::PassOptions& pass_options) {
+    // Fix math backend for this compilation unit (compile-time policy).
+    LCompilers::math_backend_policy() = pass_options.math_backend;
     int index_kind = pass_options.descriptor_index_64 ? 8 : 4;
     std::map<ASR::symbol_t*, ASRUtils::IntrinsicArrayFunctions> func2intrinsicid;
     ReplaceIntrinsicFunctionsVisitor v(al, unit.m_symtab, func2intrinsicid, index_kind);

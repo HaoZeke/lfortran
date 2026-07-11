@@ -38,6 +38,9 @@ struct PassOptions {
     bool inline_external_symbol_calls = true; // for inline_function_calls pass
     int64_t unroll_factor = 32; // for loop_unroll pass
     bool fast = false; // is fast flag enabled.
+    // Compile-time math backend: "libm" (default) or "pure" (owned Sollya kernels).
+    // Fixed for the compiled program; not a per-call switch.
+    std::string math_backend = "libm";
     bool no_fast_math = false; // disable fast-math optimizations (NaN, Inf, etc.)
     bool verbose = false; // For developer debugging
     bool dump_all_passes = false; // For developer debugging
@@ -139,6 +142,8 @@ struct CompilerOptions {
     bool infer_mode = false;
     bool print_leading_space = false;
     bool rtlib = false;
+    // Mirrors po.math_backend for link-time pure runtime selection.
+    std::string math_backend = "libm";
     bool use_loop_variable_after_loop = false;
     std::string target = "";
     std::string arg_o = "";
@@ -162,6 +167,28 @@ struct CompilerOptions {
 
     CompilerOptions () : platform{get_platform()} {};
 };
+
+// Compile-time math backend policy (set from PassOptions during intrinsic replace).
+// Values: "libm" (default) or "pure". Not a per-call switch.
+inline std::string &math_backend_policy() {
+    static thread_local std::string backend = "libm";
+    return backend;
+}
+
+
+// Map elemental math name + kind to C runtime symbol for the active math backend.
+// pure backend currently covers real sin/cos only; complex always uses libm names.
+inline std::string math_c_runtime_symbol(const std::string &name, int kind,
+        bool is_complex, const std::string &backend = math_backend_policy()) {
+    if (is_complex) {
+        return (kind == 4) ? ("_lfortran_c" + name) : ("_lfortran_z" + name);
+    }
+    const bool pure_trig = (backend == "pure") && (name == "sin" || name == "cos");
+    if (pure_trig) {
+        return (kind == 4) ? ("_lfortran_pure_s" + name) : ("_lfortran_pure_d" + name);
+    }
+    return (kind == 4) ? ("_lfortran_s" + name) : ("_lfortran_d" + name);
+}
 
 bool present(Vec<char*> &v, const char* name);
 bool present(char** const v, size_t n, const std::string name);
