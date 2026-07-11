@@ -1866,6 +1866,16 @@ class ArrayOpVisitor: public ASR::CallReplacerOnExpressionsVisitor<ArrayOpVisito
             ASR::is_a<ASR::ArraySection_t>(*xx.m_target)) {
             return false;
         }
+        // Require addressable base arrays (Var). Expressions like sin(2*x)
+        // must not take bulk (no materialized storage for BindC data ptrs).
+        ASR::expr_t* arg_base = ASRUtils::get_past_array_physical_cast(arg);
+        ASR::expr_t* tgt_base = ASRUtils::get_past_array_physical_cast(xx.m_target);
+        if (!ASR::is_a<ASR::Var_t>(*arg_base) || !ASR::is_a<ASR::Var_t>(*tgt_base)) {
+            return false;
+        }
+        if (ASR::is_a<ASR::ArrayItem_t>(*arg) || ASR::is_a<ASR::ArrayItem_t>(*xx.m_target)) {
+            return false;
+        }
         ASR::ttype_t* elem = ASRUtils::extract_type(arg_type);
         if (!ASRUtils::is_real(*elem)) {
             return false;

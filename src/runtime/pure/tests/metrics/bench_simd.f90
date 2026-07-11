@@ -143,9 +143,14 @@ program bench_simd
   write(31, '(a,es16.8,a)') "pure_array_scalar_loop ", (t7 - t6), " loop_pure_dsin_legacy"
   write(31, '(a,es16.8)') "ratio_pure_array_scalar_loop_over_host ", (t7 - t6) / (t5 - t4)
   write(31, '(a,es16.8)') "max_abs_err_array ", maxval(abs(yv - yh))
-  ! run_metrics keys
+  ! Primary keys (honest names)
   write(31, '(a,es16.8)') "pure_scalar_loop ", pure_s
   write(31, '(a,es16.8)') "ratio_pure_scalar_loop_over_host ", pure_s / host_s
+  write(31, '(a,es16.8)') "pure_array_bulk ", (t6 - t5)
+  write(31, '(a,es16.8)') "ratio_pure_array_bulk_over_host ", (t6 - t5) / (t5 - t4)
+  write(31, '(a,es16.8)') "pure_array_scalar_loop ", (t7 - t6)
+  write(31, '(a,es16.8)') "ratio_pure_array_scalar_loop_over_host ", (t7 - t6) / (t5 - t4)
+  ! Compatibility aliases (same bulk time; not elemental / not OpenMP)
   write(31, '(a,es16.8)') "pure_elemental_array ", (t6 - t5)
   write(31, '(a,es16.8)') "ratio_pure_elem_array_over_host_array ", (t6 - t5) / (t5 - t4)
   write(31, '(a,es16.8)') "pure_omp_simd_dsin_v ", (t6 - t5)

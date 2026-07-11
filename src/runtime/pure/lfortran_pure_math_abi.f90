@@ -165,20 +165,23 @@ subroutine pure_dsin_v(n, x, y) bind(c, name="_lfortran_pure_dsin_v")
 integer(c_int), value, intent(in) :: n
 real(c_double), intent(in)  :: x(n)
 real(c_double), intent(out) :: y(n)
-integer :: i, nn
+integer :: i, j, nn
 real(dp) :: axmax
 if (n <= 0) return
 nn = n
+! Portable specials scan: MAX(NaN,...) is processor-dependent, so check
+! ieee_is_finite per element (covers NaN and ±Inf).
 axmax = 0.0_dp
 do i = 1, nn
+    if (.not. ieee_is_finite(x(i))) then
+        do j = 1, nn
+            y(j) = pure_dsin(x(j))
+        end do
+        return
+    end if
     axmax = max(axmax, abs(x(i)))
 end do
-! NaN or ±Inf: element-wise scalar path (ieee specials). Poly/CW assume finite.
-if (axmax /= axmax .or. .not. ieee_is_finite(axmax)) then
-    do i = 1, nn
-        y(i) = pure_dsin(x(i))
-    end do
-else if (axmax <= halfpi) then
+if (axmax <= halfpi) then
     call work_sin_poly(nn, x, y)
 else
     call work_sin_cw(nn, x, y)
@@ -189,19 +192,21 @@ subroutine pure_dcos_v(n, x, y) bind(c, name="_lfortran_pure_dcos_v")
 integer(c_int), value, intent(in) :: n
 real(c_double), intent(in)  :: x(n)
 real(c_double), intent(out) :: y(n)
-integer :: i, nn
+integer :: i, j, nn
 real(dp) :: axmax
 if (n <= 0) return
 nn = n
 axmax = 0.0_dp
 do i = 1, nn
+    if (.not. ieee_is_finite(x(i))) then
+        do j = 1, nn
+            y(j) = pure_dcos(x(j))
+        end do
+        return
+    end if
     axmax = max(axmax, abs(x(i)))
 end do
-if (axmax /= axmax .or. .not. ieee_is_finite(axmax)) then
-    do i = 1, nn
-        y(i) = pure_dcos(x(i))
-    end do
-else if (axmax <= halfpi) then
+if (axmax <= halfpi) then
     call work_cos_poly(nn, x, y)
 else
     call work_cos_cw(nn, x, y)
