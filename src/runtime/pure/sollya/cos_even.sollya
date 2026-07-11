@@ -1,0 +1,13 @@
+/* Even monoms for cos on [-pi/2, pi/2]; absolute fixed-point fpminimax.
+ * Relative error is singular near +/- pi/2 where cos vanishes, so absolute.
+ * Used by lfortran_intrinsic_trig kernel_dcos.
+ * Run: sollya cos_even.sollya
+ */
+prec = 165;
+display = decimal;
+Pcos = fpminimax(cos(x), [|0,2,4,6,8,10,12,14,16|], [|1,D...|], [-pi/2;pi/2], absolute, fixed);
+print("Pcos = ", Pcos);
+print("supnorm_abs = ", supnorm(Pcos, cos(x), [-pi/2;pi/2], absolute, 2^(-45)));
+for i from 0 to 8 do {
+  print("C", i, " = ", round(coeff(Pcos, 2*i), D, RN), "_dp");
+};
