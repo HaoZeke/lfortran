@@ -82,24 +82,55 @@ real(sp) :: r
 r = real(dcos(real(x, dp)), sp)
 end function
 
+! Contained work (not elemental call) so auto-vec works without LTO
 subroutine dsin_v(x, y)
 real(dp), intent(in)  :: x(:)
 real(dp), intent(out) :: y(:)
-integer :: i, n
+integer :: n
 n = min(size(x), size(y))
-do i = 1, n
-    y(i) = dsin(x(i))
-end do
+call dsin_v_work(n, x, y)
+contains
+    subroutine dsin_v_work(n, x, y)
+    integer, intent(in) :: n
+    real(dp), intent(in)  :: x(n)
+    real(dp), intent(out) :: y(n)
+    integer :: i, ni
+    real(dp) :: xi, z, yr, sgn, an
+    do i = 1, n
+        xi = x(i)
+        ni = nint(xi * inv_pi)
+        an = real(ni, dp)
+        yr = (xi - an * pi_c1) - an * pi_c2
+        sgn = 1.0_dp - 2.0_dp * real(iand(ni, 1), dp)
+        z = yr * yr
+        y(i) = sgn * yr * (1.0_dp + z*(S1 + z*(S2 + z*(S3 + z*(S4 + z*(S5 + z*(S6 + z*S7)))))))
+    end do
+    end subroutine
 end subroutine
 
 subroutine dcos_v(x, y)
 real(dp), intent(in)  :: x(:)
 real(dp), intent(out) :: y(:)
-integer :: i, n
+integer :: n
 n = min(size(x), size(y))
-do i = 1, n
-    y(i) = dcos(x(i))
-end do
+call dcos_v_work(n, x, y)
+contains
+    subroutine dcos_v_work(n, x, y)
+    integer, intent(in) :: n
+    real(dp), intent(in)  :: x(n)
+    real(dp), intent(out) :: y(n)
+    integer :: i, ni
+    real(dp) :: xi, z, yr, sgn, an
+    do i = 1, n
+        xi = x(i)
+        ni = nint(xi * inv_pi)
+        an = real(ni, dp)
+        yr = (xi - an * pi_c1) - an * pi_c2
+        sgn = 1.0_dp - 2.0_dp * real(iand(ni, 1), dp)
+        z = yr * yr
+        y(i) = sgn * (1.0_dp + z*(C1 + z*(C2 + z*(C3 + z*(C4 + z*(C5 + z*(C6 + z*(C7 + z*C8))))))))
+    end do
+    end subroutine
 end subroutine
 
 end module

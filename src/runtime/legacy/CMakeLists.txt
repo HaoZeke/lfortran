@@ -104,15 +104,22 @@ if(LFORTRAN_PURE_MATH_FC)
     add_custom_command(
         OUTPUT ${PURE_MATH_A}
         COMMAND ${CMAKE_COMMAND} -E make_directory ${PURE_MATH_OBJDIR}
-        COMMAND ${LFORTRAN_PURE_MATH_FC} -ffree-line-length-none -O2 -fPIC
+        # -O3 -flto: leaf scalar ABI + LTO bitcode so elemental/array sin can
+        # auto-vectorize when the final link also uses -flto (metrics, LFortran).
+        COMMAND ${LFORTRAN_PURE_MATH_FC} -ffree-line-length-none -O3 -fPIC
+            -ftree-vectorize -funroll-loops -flto
             -J${PURE_MATH_OBJDIR} -c ${PURE_TRIG_SRC}
             -o ${PURE_MATH_OBJDIR}/lfortran_intrinsic_trig.o
-        COMMAND ${LFORTRAN_PURE_MATH_FC} -ffree-line-length-none -O2 -fPIC
+        COMMAND ${LFORTRAN_PURE_MATH_FC} -ffree-line-length-none -O3 -fPIC
+            -ftree-vectorize -funroll-loops -flto
             -J${PURE_MATH_OBJDIR} -I${PURE_MATH_OBJDIR} -c ${PURE_ABI_SRC}
             -o ${PURE_MATH_OBJDIR}/lfortran_pure_math_abi.o
-        COMMAND ${CMAKE_AR} rcs ${PURE_MATH_A}
+        COMMAND ${LFORTRAN_PURE_MATH_FC} -flto -r
+            -o ${PURE_MATH_OBJDIR}/pure_math_lto.o
             ${PURE_MATH_OBJDIR}/lfortran_intrinsic_trig.o
             ${PURE_MATH_OBJDIR}/lfortran_pure_math_abi.o
+        COMMAND ${CMAKE_AR} rcs ${PURE_MATH_A}
+            ${PURE_MATH_OBJDIR}/pure_math_lto.o
         DEPENDS ${PURE_TRIG_SRC} ${PURE_ABI_SRC}
         COMMENT "Building liblfortran_runtime_pure_math.a (gfortran Sollya pure sin/cos)"
         VERBATIM
