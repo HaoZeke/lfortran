@@ -25,6 +25,9 @@ checks = [
     (root / "src/runtime/pure/lfortran_pure_math_abi.f90", r"_lfortran_pure_dsin", "pure ABI export"),
     (root / "src/runtime/pure/lfortran_pure_math_abi.f90", r"_lfortran_pure_dcos", "pure cos ABI export"),
     (root / "src/runtime/pure/lfortran_pure_math_abi.f90", r"_lfortran_pure_dsin_v", "pure bulk sin ABI"),
+    (root / "src/runtime/pure/tests/test_pure_bulk_abi.f90", r"_lfortran_pure_dsin_v", "bulk ABI smoke drives pure_dsin_v"),
+    (root / "src/runtime/pure/tests/run_archive_abi_test.sh", r"test_pure_bulk_abi", "archive script runs bulk ABI"),
+
     (root / "src/runtime/pure/lfortran_pure_math_abi.f90", r"_lfortran_pure_dcos_v", "pure bulk cos ABI"),
     (root / "src/runtime/pure/lfortran_pure_math_abi.f90", r"ieee_arithmetic", "pure ABI uses ieee_arithmetic"),
     (root / "src/libasr/math_backend.h", r"math_c_runtime_bulk_symbol", "bulk symbol helper"),
