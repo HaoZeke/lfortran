@@ -1835,8 +1835,7 @@ class ArrayOpVisitor: public ASR::CallReplacerOnExpressionsVisitor<ArrayOpVisito
     }
 
     // --math-backend=pure: lower whole-array y = sin(x) / cos(x) to one
-    // bulk call (_lfortran_pure_d{sin,cos}_v) instead of N scalar pure_dsin.
-    // That "array pure" scalar loop is the throughput failure mode vs libmvec.
+    // bulk call (_lfortran_pure_d{sin,cos}_v) instead of N scalar pure calls.
     bool try_emit_pure_bulk_trig(ASR::Assignment_t& xx, const Location& loc) {
         if (pass_options.math_backend != "pure") {
             return false;

@@ -4,7 +4,7 @@
 ! Scalar pure_dsin/pure_dcos: leaf Horner + Cody–Waite (no nested calls).
 ! Array pure_dsin_v: bulk kernel in pure Fortran. Principal-band inputs use a
 ! vectorizable poly loop; larger |x| uses Cody–Waite. This is not a loop of
-! scalar ABI calls (that path is the slow "array pure" failure mode).
+! scalar ABI calls.
 !
 ! IEEE specials: F2008 ieee_arithmetic quiet NaN (not iso_fortran_env).
 module lfortran_pure_math_abi
