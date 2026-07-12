@@ -150,11 +150,6 @@ program bench_simd
   write(31, '(a,es16.8)') "ratio_pure_array_bulk_over_host ", (t6 - t5) / (t5 - t4)
   write(31, '(a,es16.8)') "pure_array_scalar_loop ", (t7 - t6)
   write(31, '(a,es16.8)') "ratio_pure_array_scalar_loop_over_host ", (t7 - t6) / (t5 - t4)
-  ! Compatibility aliases (same bulk time; not elemental / not OpenMP)
-  write(31, '(a,es16.8)') "pure_elemental_array ", (t6 - t5)
-  write(31, '(a,es16.8)') "ratio_pure_elem_array_over_host_array ", (t6 - t5) / (t5 - t4)
-  write(31, '(a,es16.8)') "pure_omp_simd_dsin_v ", (t6 - t5)
-  write(31, '(a,es16.8)') "ratio_pure_simd_v_over_host_array ", (t6 - t5) / (t5 - t4)
   close(31)
 
   print *, "ACCURACY max_sin=", ms, " max_cos=", mc, " n10=", n10s, n10c, " specials=", ok_special

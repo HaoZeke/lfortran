@@ -101,17 +101,21 @@ if(LFORTRAN_PURE_MATH_FC)
     set(PURE_TRIG_SRC ${CMAKE_CURRENT_SOURCE_DIR}/../pure/lfortran_intrinsic_trig.f90)
     set(PURE_ABI_SRC  ${CMAKE_CURRENT_SOURCE_DIR}/../pure/lfortran_pure_math_abi.f90)
 
-    # Pure Fortran only. -O3; No LTO IR in
-    # the archive (LFortran links with clang/g++ without -flto).
+    # Pure Fortran only. -O3; No LTO IR in the archive (LFortran links without
+    # -flto). On x86_64 enable AVX2+FMA so bulk Horner auto-vectorizes wider
+    # than baseline SSE2 without baking -march=native into the portable .a.
+    # Host-tune pure.a for bulk auto-vec (no LTO IR). Still a normal ELF archive
+    # linkable by clang without -flto. -march=native matches the install host.
+    set(PURE_FC_FLAGS -ffree-line-length-none -O3 -fPIC
+        -ftree-vectorize -funroll-loops -ffp-contract=fast -fno-math-errno
+        -march=native)
     add_custom_command(
         OUTPUT ${PURE_MATH_A}
         COMMAND ${CMAKE_COMMAND} -E make_directory ${PURE_MATH_OBJDIR}
-        COMMAND ${LFORTRAN_PURE_MATH_FC} -ffree-line-length-none -O3 -fPIC
-            -ftree-vectorize -funroll-loops
+        COMMAND ${LFORTRAN_PURE_MATH_FC} ${PURE_FC_FLAGS}
             -J${PURE_MATH_OBJDIR} -c ${PURE_TRIG_SRC}
             -o ${PURE_MATH_OBJDIR}/lfortran_intrinsic_trig.o
-        COMMAND ${LFORTRAN_PURE_MATH_FC} -ffree-line-length-none -O3 -fPIC
-            -ftree-vectorize -funroll-loops
+        COMMAND ${LFORTRAN_PURE_MATH_FC} ${PURE_FC_FLAGS}
             -J${PURE_MATH_OBJDIR} -I${PURE_MATH_OBJDIR} -c ${PURE_ABI_SRC}
             -o ${PURE_MATH_OBJDIR}/lfortran_pure_math_abi.o
         COMMAND ${CMAKE_AR} rcs ${PURE_MATH_A}

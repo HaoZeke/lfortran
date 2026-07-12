@@ -67,6 +67,8 @@ def main() -> int:
         "-march=native",
         "-ftree-vectorize",
         "-funroll-loops",
+        "-ffp-contract=fast",
+        "-fno-math-errno",
         "-fPIC",
     ]
     # No -flto: production LFortran does not LTO-inline pure into user code.

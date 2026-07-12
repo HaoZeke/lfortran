@@ -6,8 +6,7 @@
 ! vectorizable poly loop; larger |x| uses Cody–Waite. This is not a loop of
 ! scalar ABI calls (that path is the slow "array pure" failure mode).
 !
-! IEEE specials use F2008 ieee_arithmetic (iso_fortran_env does not define
-! NaN/Inf predicates). NaN and ±Inf → quiet NaN.
+! IEEE specials: F2008 ieee_arithmetic quiet NaN (not iso_fortran_env).
 module lfortran_pure_math_abi
 use, intrinsic :: iso_c_binding, only: c_double, c_float, c_int
 use, intrinsic :: ieee_arithmetic, only: ieee_is_nan, ieee_is_finite, &
@@ -98,7 +97,6 @@ real(c_float), value, intent(in) :: x
 r = real(pure_dcos(real(x, c_double)), c_float)
 end function
 
-! Non-bind(C) work: plain do-loops auto-vectorize under -O3.
 subroutine work_sin_poly(n, x, y)
 integer, intent(in) :: n
 real(dp), intent(in) :: x(n)
@@ -159,8 +157,8 @@ do i = 1, n
 end do
 end subroutine
 
-! Array pure entry: bulk kernel, not N scalar ABI calls.
-! LFortran array_op wires y=sin(x)/cos(x) here under --math-backend=pure.
+! Bulk: one max |x| reduction, then branch-free poly or CW.
+! Specials: NaN max (axmax/=axmax) or non-finite max → element-wise pure_dsin.
 subroutine pure_dsin_v(n, x, y) bind(c, name="_lfortran_pure_dsin_v")
 integer(c_int), value, intent(in) :: n
 real(c_double), intent(in)  :: x(n)
@@ -169,18 +167,16 @@ integer :: i, j, nn
 real(dp) :: axmax
 if (n <= 0) return
 nn = n
-! Portable specials scan: MAX(NaN,...) is processor-dependent, so check
-! ieee_is_finite per element (covers NaN and ±Inf).
 axmax = 0.0_dp
 do i = 1, nn
-    if (.not. ieee_is_finite(x(i))) then
-        do j = 1, nn
-            y(j) = pure_dsin(x(j))
-        end do
-        return
-    end if
     axmax = max(axmax, abs(x(i)))
 end do
+if (axmax /= axmax .or. .not. ieee_is_finite(axmax)) then
+    do j = 1, nn
+        y(j) = pure_dsin(x(j))
+    end do
+    return
+end if
 if (axmax <= halfpi) then
     call work_sin_poly(nn, x, y)
 else
@@ -198,14 +194,14 @@ if (n <= 0) return
 nn = n
 axmax = 0.0_dp
 do i = 1, nn
-    if (.not. ieee_is_finite(x(i))) then
-        do j = 1, nn
-            y(j) = pure_dcos(x(j))
-        end do
-        return
-    end if
     axmax = max(axmax, abs(x(i)))
 end do
+if (axmax /= axmax .or. .not. ieee_is_finite(axmax)) then
+    do j = 1, nn
+        y(j) = pure_dcos(x(j))
+    end do
+    return
+end if
 if (axmax <= halfpi) then
     call work_cos_poly(nn, x, y)
 else
