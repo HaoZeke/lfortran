@@ -68,6 +68,11 @@
 #include <lfortran/parser/parser.tab.hh>
 #include <string>
 #include <sstream>
+#ifndef _WIN32
+#include <spawn.h>
+#include <sys/wait.h>
+extern char **environ;
+#endif
 
 #include <cpp-terminal/terminal.h>
 #include <cpp-terminal/prompt0.h>
@@ -1982,6 +1987,190 @@ int compile_to_binary_fortran(const std::string &infile,
     return 0;
 }
 
+// Quote one argument for the POSIX shell. The link line used to be one
+// string passed to system(), so a space in `-o` or in a `-Wl` path became
+// a second filename.
+std::string shell_quote(const std::string &arg) {
+    std::string quoted = "'";
+    for (char c : arg) {
+        if (c == '\'') {
+            quoted += "'\\''";
+        } else {
+            quoted += c;
+        }
+    }
+    quoted += "'";
+    return quoted;
+}
+
+std::string shell_join(const std::vector<std::string> &args) {
+    std::string text;
+    for (size_t i = 0; i < args.size(); i++) {
+        if (i > 0) {
+            text += " ";
+        }
+        text += shell_quote(args[i]);
+    }
+    return text;
+}
+
+// Run a program with an argv vector. No shell, so an argument that contains
+// a space stays one argument.
+int exec_argv(const std::vector<std::string> &args) {
+    if (args.empty()) {
+        return 127;
+    }
+#ifdef _WIN32
+    return system(shell_join(args).c_str());
+#else
+    std::vector<char *> argv;
+    argv.reserve(args.size() + 1);
+    for (const std::string &arg : args) {
+        argv.push_back(const_cast<char *>(arg.c_str()));
+    }
+    argv.push_back(nullptr);
+    pid_t pid = 0;
+    if (posix_spawnp(&pid, argv[0], nullptr, nullptr, argv.data(), environ) != 0) {
+        return 127;
+    }
+    int status = 0;
+    if (waitpid(pid, &status, 0) < 0) {
+        return 127;
+    }
+    if (WIFEXITED(status)) {
+        return WEXITSTATUS(status) == 0 ? 0 : 1;
+    }
+    return 1;
+#endif
+}
+
+// Library directories the system C compiler searches by default
+// (`cc -print-search-dirs`). A Conda clang does not look in the distro
+// multiarch directory, so `-lz` misses `/usr/lib/<triplet>/libz.so` unless
+// these paths are passed on.
+std::vector<std::string> c_compiler_library_directories() {
+    static bool cached = false;
+    static std::vector<std::string> dirs;
+    if (cached) {
+        return dirs;
+    }
+    cached = true;
+    std::string command = shell_quote(get_c_compiler("cc"))
+        + " -print-search-dirs 2>/dev/null";
+    FILE *pipe = popen(command.c_str(), "r");
+    if (pipe == nullptr) {
+        return dirs;
+    }
+    std::string output;
+    char buffer[4096];
+    while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
+        output += buffer;
+    }
+    pclose(pipe);
+    const std::string marker = "libraries:";
+    std::string::size_type at = output.find(marker);
+    if (at == std::string::npos) {
+        return dirs;
+    }
+    at += marker.size();
+    while (at < output.size() && (output[at] == ' ' || output[at] == '\t')) {
+        at++;
+    }
+    std::string::size_type end = output.find('\n', at);
+    std::string list = output.substr(at, end == std::string::npos
+        ? std::string::npos : end - at);
+    // The leading '=' marks paths relative to the compiler sysroot. The
+    // paths that follow are absolute.
+    if (!list.empty() && list[0] == '=') {
+        list.erase(0, 1);
+    }
+    std::stringstream stream(list);
+    std::string dir;
+    while (std::getline(stream, dir, ':')) {
+        if (!dir.empty() && dir[0] == '=') {
+            dir.erase(0, 1);
+        }
+        if (dir.empty() || !std::filesystem::is_directory(dir)) {
+            continue;
+        }
+        bool seen = false;
+        for (const std::string &existing : dirs) {
+            if (existing == dir) {
+                seen = true;
+                break;
+            }
+        }
+        if (!seen) {
+            dirs.push_back(dir);
+        }
+    }
+    return dirs;
+}
+
+#ifdef HAVE_LFORTRAN_LLVM
+// True when an object file has an undefined OpenMP runtime symbol. The
+// link step then pulls in libgomp even if `--openmp` was only passed while
+// the file was compiled.
+bool object_needs_openmp_runtime(const std::string &path) {
+    if (!(LCompilers::endswith(path, ".o") || LCompilers::endswith(path, ".obj"))) {
+        return false;
+    }
+    auto buffer = llvm::MemoryBuffer::getFile(path);
+    if (!buffer) {
+        return false;
+    }
+    auto binary = llvm::object::ObjectFile::createObjectFile(
+        (*buffer)->getMemBufferRef());
+    if (!binary) {
+        llvm::consumeError(binary.takeError());
+        return false;
+    }
+    for (const llvm::object::SymbolRef &sym : (*binary)->symbols()) {
+        auto flags = sym.getFlags();
+        if (!flags) {
+            llvm::consumeError(flags.takeError());
+            continue;
+        }
+        if (!(*flags & llvm::object::SymbolRef::SF_Undefined)) {
+            continue;
+        }
+        auto name = sym.getName();
+        if (!name) {
+            llvm::consumeError(name.takeError());
+            continue;
+        }
+        llvm::StringRef text = *name;
+        if (text.startswith("GOMP_") || text.startswith("omp_")
+                || text.startswith("__kmpc_")) {
+            return true;
+        }
+    }
+    return false;
+}
+#endif
+
+// libgomp provides the GOMP_* calls the OpenMP lowering emits. libomp is
+// the LLVM runtime, used when libgomp is not installed.
+std::string openmp_runtime_flag(const std::vector<std::string> &dirs) {
+    auto has = [&](const std::string &name) {
+        for (const std::string &dir : dirs) {
+            if (std::filesystem::exists(dir + "/lib" + name + ".so")
+                    || std::filesystem::exists(dir + "/lib" + name + ".a")
+                    || std::filesystem::exists(dir + "/lib" + name + ".dylib")) {
+                return true;
+            }
+        }
+        return false;
+    };
+    if (has("gomp")) {
+        return "-lgomp";
+    }
+    if (has("omp")) {
+        return "-lomp";
+    }
+    return "-lgomp";
+}
+
 // infile is an object file
 // outfile will become the executable
 int link_executable(const std::vector<std::string> &infiles,
@@ -2069,27 +2258,56 @@ int link_executable(const std::vector<std::string> &infiles,
 
     size_t dot_index = outfile.find_last_of(".");
     std::string file_name = outfile.substr(0, dot_index);
+    std::vector<std::string> extra_linker_args;
     std::string extra_linker_flags;
     if (!linker_flags.empty()) {
         for (auto &s: linker_flags) {
-            extra_linker_flags += " -W" + s;
+            // `-W` stores the text after `-W`, so `-Wl,-rpath,/dir` is
+            // `l,-rpath,/dir`. The whole flag is one linker argument.
+            extra_linker_args.push_back("-W" + s);
+            extra_linker_flags += " " + shell_quote(extra_linker_args.back());
         }
     }
-    std::string extra_library_flags;
-    if (!lib_dirs.empty()) {
-        for (auto &s: lib_dirs) {
-            extra_library_flags += " -L" + s;
+    std::vector<std::string> effective_lib_dirs = lib_dirs;
+    for (const std::string &dir : c_compiler_library_directories()) {
+        bool seen = false;
+        for (const std::string &existing : effective_lib_dirs) {
+            if (existing == dir) {
+                seen = true;
+                break;
+            }
         }
+        if (!seen) {
+            effective_lib_dirs.push_back(dir);
+        }
+    }
+    std::vector<std::string> extra_library_args;
+    std::string extra_library_flags;
+    for (auto &s: effective_lib_dirs) {
+        extra_library_args.push_back("-L" + s);
+        extra_library_flags += " " + shell_quote(extra_library_args.back());
     }
     if (!libraries.empty()) {
         for (auto &s: libraries) {
-            extra_library_flags += " -l" + s;
+            extra_library_args.push_back("-l" + s);
+            extra_library_flags += " " + shell_quote(extra_library_args.back());
         }
     }
     if(static_executable && shared_executable) {
         std::cout << "Cannot use static_executable and shared_executable together" << std::endl;
         return 10;
     }
+    bool link_openmp = compiler_options.openmp;
+#ifdef HAVE_LFORTRAN_LLVM
+    if (!link_openmp) {
+        for (const std::string &infile : infiles) {
+            if (object_needs_openmp_runtime(infile)) {
+                link_openmp = true;
+                break;
+            }
+        }
+    }
+#endif
     const bool static_library_search = static_executable
         && compiler_options.platform != LCompilers::Platform::macOS_Intel
         && compiler_options.platform != LCompilers::Platform::macOS_ARM
@@ -2097,6 +2315,8 @@ int link_executable(const std::vector<std::string> &infiles,
     if (backend == Backend::llvm || backend == Backend::mlir) {
         std::string run_cmd = "", compile_cmd = "";
         bool device_driver_links = false;
+        std::vector<std::string> host_link_args;
+        bool host_link_args_ready = false;
         std::vector<std::string> lld_extra_objects;
         std::vector<std::string> lld_extra_libs;
         std::string lld_runtime_lib = "lfortran_runtime";
@@ -2118,7 +2338,7 @@ int link_executable(const std::vector<std::string> &infiles,
                 CC = std::string(wasi_sdk_path) + "/bin/clang";
                 options = " --target=wasm32-wasi -nostartfiles -Wl,--entry=_start -Wl,-lwasi-emulated-process-clocks";
                 runtime_lib = "lfortran_runtime_wasm_wasi.o";
-                compile_cmd = CC + options + " -o " + outfile + " ";
+                compile_cmd = shell_quote(CC) + options + " -o " + shell_quote(outfile) + " ";
             } else if (LCompilers::endswith(t, "emscripten")) {
                 char* emsdk_path = std::getenv("EMSDK_PATH");
                 if (emsdk_path == nullptr) {
@@ -2131,20 +2351,20 @@ int link_executable(const std::vector<std::string> &infiles,
                     options += " --embed-file " + compiler_options.emcc_embed;
                 }
                 runtime_lib = "lfortran_runtime_wasm_emcc.o";
-                compile_cmd = CC + options + " -o " + outfile +
-                     (compiler_options.wasm_html ? ".html " : " ");
+                compile_cmd = shell_quote(CC) + options + " -o " + shell_quote(outfile +
+                     (compiler_options.wasm_html ? ".html" : "")) + " ";
             } else {
                 std::cerr << "Unsupported target: " << t << std::endl;
                 return 10;
             }
             for (auto &s : infiles) {
-                compile_cmd += s + " ";
+                compile_cmd += shell_quote(s) + " ";
             }
-            compile_cmd += runtime_library_dir + "/" + runtime_lib;
+            compile_cmd += shell_quote(runtime_library_dir + "/" + runtime_lib);
             compile_cmd +=  extra_linker_flags;
         } else {
             std::string CC{""};
-            std::string base_path = "\"" + runtime_library_dir + "\"";
+            std::string base_path = runtime_library_dir;
             std::string options;
             std::string runtime_lib = "lfortran_runtime";
 
@@ -2171,9 +2391,12 @@ int link_executable(const std::vector<std::string> &infiles,
                 CC += "clang";
             }
 
+            host_link_args.push_back(CC);
             if (compiler_options.target != "" &&
                     CC.find("clang" ) != std::string::npos) {
                 options = " -target " + compiler_options.target;
+                host_link_args.push_back("-target");
+                host_link_args.push_back(compiler_options.target);
             }
 
             if (static_executable) {
@@ -2181,34 +2404,57 @@ int link_executable(const std::vector<std::string> &infiles,
                 && compiler_options.platform != LCompilers::Platform::macOS_ARM
                 && compiler_options.platform != LCompilers::Platform::macOS_PowerPC) {
                     options += " -static ";
+                    host_link_args.push_back("-static");
                 }
                 runtime_lib = "lfortran_runtime_static";
             }
             if (shared_executable) {
                 options += " -shared ";
+                host_link_args.push_back("-shared");
             }
-            compile_cmd = CC + options + " -o " + outfile + " ";
+            compile_cmd = shell_quote(CC) + options + " -o " + shell_quote(outfile) + " ";
+            host_link_args.push_back("-o");
+            host_link_args.push_back(outfile);
             for (auto &s : infiles) {
-                compile_cmd += s + " ";
+                compile_cmd += shell_quote(s) + " ";
+                host_link_args.push_back(s);
             }
             if(!extra_library_flags.empty()) {
                 compile_cmd += extra_library_flags + " ";
+                host_link_args.insert(host_link_args.end(),
+                    extra_library_args.begin(), extra_library_args.end());
             }
-            compile_cmd += " -L"
-                + base_path + " -Wl,-rpath," + base_path;
+            compile_cmd += " " + shell_quote("-L" + base_path)
+                + " " + shell_quote("-Wl,-rpath," + base_path);
+            host_link_args.push_back("-L" + base_path);
+            host_link_args.push_back("-Wl,-rpath," + base_path);
             if (!extra_linker_flags.empty()) {
                 compile_cmd += extra_linker_flags;
+                host_link_args.insert(host_link_args.end(),
+                    extra_linker_args.begin(), extra_linker_args.end());
             }
-            compile_cmd += " -l" + runtime_lib + " -lm";
+            compile_cmd += " " + shell_quote("-l" + runtime_lib) + " -lm";
+            host_link_args.push_back("-l" + runtime_lib);
+            host_link_args.push_back("-lm");
             lld_runtime_lib = runtime_lib;
-            if (compiler_options.openmp && CC.find("clang" ) != std::string::npos) {
+            if (link_openmp) {
                 std::string openmp_shared_library = compiler_options.openmp_lib_dir;
-                std::string omp_cmd =  " -L" + openmp_shared_library + " -Wl,-rpath," + openmp_shared_library + " -lomp";
+                std::vector<std::string> omp_dirs = effective_lib_dirs;
                 if (!openmp_shared_library.empty()) {
-                    compile_cmd += omp_cmd;
+                    std::string arg_L = "-L" + openmp_shared_library;
+                    std::string arg_rpath = "-Wl,-rpath," + openmp_shared_library;
+                    compile_cmd += " " + shell_quote(arg_L) + " " + shell_quote(arg_rpath);
+                    host_link_args.push_back(arg_L);
+                    host_link_args.push_back(arg_rpath);
+                    omp_dirs.insert(omp_dirs.begin(), openmp_shared_library);
                 }
+                std::string omp_lib = openmp_runtime_flag(omp_dirs);
+                compile_cmd += " " + shell_quote(omp_lib);
+                host_link_args.push_back(omp_lib);
             }
+            host_link_args_ready = true;
             if (compiler_options.gpu_backend == "metal") {
+                host_link_args_ready = false;
                 // Compile the Metal runtime and link it
                 std::string metal_runtime_src = runtime_library_dir
                     + "/../libasr/runtime/lfortran_gpu_metal.m";
@@ -2231,6 +2477,7 @@ int link_executable(const std::vector<std::string> &infiles,
                     + " -framework Metal -framework Foundation";
             }
             if (compiler_options.gpu_backend == "cuda") {
+                host_link_args_ready = false;
                 // Collect CUDA kernel source from embedded object metadata.
                 // Each object contributes its own translation unit, and
                 // legacy sidecars remain as a fallback for older builds.
@@ -2485,12 +2732,21 @@ int link_executable(const std::vector<std::string> &infiles,
 #ifdef HAVE_LFORTRAN_LLD
             err = link_with_lld(infiles, lld_extra_objects, outfile,
                 runtime_library_dir, lld_runtime_lib, static_executable,
-                shared_executable, verbose, lib_dirs, libraries, linker_flags,
+                shared_executable, verbose, effective_lib_dirs, libraries, linker_flags,
                 lld_extra_libs, compiler_options.openmp_lib_dir,
-                compiler_options.openmp, t);
+                link_openmp, t);
 #else
             err = 1;
 #endif
+        } else if (host_link_args_ready) {
+            if (verbose) {
+                host_link_args.push_back("-v");
+            }
+            compile_cmd = shell_join(host_link_args);
+            if (verbose) {
+                std::cout << compile_cmd << std::endl;
+            }
+            err = exec_argv(host_link_args);
         } else {
             if (verbose) {
                 compile_cmd += " -v";
@@ -2543,59 +2799,56 @@ int link_executable(const std::vector<std::string> &infiles,
         }
 #endif
     } else if (backend == Backend::c) {
-        std::string CC = get_c_compiler("gcc");
-        std::string cmd = CC + " -o " + outfile + " ";
-        std::string base_path = "\"" + runtime_library_dir + "\"";
-        std::string runtime_lib = "lfortran_runtime";
-        for (auto &s : infiles) {
-            cmd += s + " ";
-        }
-        if(!extra_library_flags.empty()) {
-            cmd += extra_library_flags + " ";
-        }
-        cmd += " -L" + base_path
-            + " -Wl,-rpath," + base_path;
-        if (!extra_linker_flags.empty()) {
-            cmd += extra_linker_flags;
-        }
-        cmd += " -l" + runtime_lib + " -lm";
+        std::vector<std::string> args;
+        args.push_back(get_c_compiler("gcc"));
+        args.push_back("-o");
+        args.push_back(outfile);
+        args.insert(args.end(), infiles.begin(), infiles.end());
+        args.insert(args.end(), extra_library_args.begin(), extra_library_args.end());
+        args.push_back("-L" + runtime_library_dir);
+        args.push_back("-Wl,-rpath," + runtime_library_dir);
+        args.insert(args.end(), extra_linker_args.begin(), extra_linker_args.end());
+        args.push_back("-llfortran_runtime");
+        args.push_back("-lm");
+        std::string cmd = shell_join(args);
         if (verbose) {
             std::cout << cmd << std::endl;
         }
-        int err = system(cmd.c_str());
+        int err = exec_argv(args);
         if (err) {
             std::cout << "The command '" + cmd + "' failed." << std::endl;
             return 10;
         }
     } else if (backend == Backend::cpp) {
-        std::string CXX = "g++";
-        std::string options, post_options;
+        std::vector<std::string> args;
+        args.push_back("g++");
         if (static_executable) {
-            options += " -static ";
+            args.push_back("-static");
         }
         if (shared_executable) {
-            options += " -shared ";
+            args.push_back("-shared");
         }
         if (compiler_options.openmp) {
-            options += " -fopenmp ";
+            args.push_back("-fopenmp");
         }
+        args.push_back("-o");
+        args.push_back(outfile);
+        args.insert(args.end(), infiles.begin(), infiles.end());
+        args.insert(args.end(), extra_library_args.begin(), extra_library_args.end());
         if (kokkos) {
             std::string kokkos_libdir = LCompilers::LFortran::get_kokkos_libdir();
-            post_options += "-L" + kokkos_libdir + " -lkokkoscontainers "
-                + "-lkokkoscore -ldl" + " -Wl,-rpath," + kokkos_libdir;
+            args.push_back("-L" + kokkos_libdir);
+            args.push_back("-lkokkoscontainers");
+            args.push_back("-lkokkoscore");
+            args.push_back("-ldl");
+            args.push_back("-Wl,-rpath," + kokkos_libdir);
         }
-        std::string cmd = CXX + options + " -o " + outfile + " ";
-        for (auto &s : infiles) {
-            cmd += s + " ";
-        }
-        if(!extra_library_flags.empty()) {
-            cmd += extra_library_flags + " ";
-        }
-        cmd += " " + post_options + " -lm";
+        args.push_back("-lm");
+        std::string cmd = shell_join(args);
         if (verbose) {
             std::cout << cmd << std::endl;
         }
-        int err = system(cmd.c_str());
+        int err = exec_argv(args);
         if (err) {
             std::cout << "The command '" + cmd + "' failed." << std::endl;
             return 10;
@@ -2610,22 +2863,21 @@ int link_executable(const std::vector<std::string> &infiles,
     } else if (backend == Backend::wasm) {
         // do nothing
     } else if (backend == Backend::fortran) {
-        std::string cmd = "gfortran -o " + outfile + " ";
-        std::string base_path = "\"" + runtime_library_dir + "\"";
-        std::string runtime_lib = "lfortran_runtime";
-        for (auto &s : infiles) {
-            cmd += s + " ";
-        }
-        if(!extra_library_flags.empty()) {
-            cmd += extra_library_flags + " ";
-        }
-        cmd += " -L" + base_path
-            + " -Wl,-rpath," + base_path;
-        cmd += " -l" + runtime_lib + " -lm";
+        std::vector<std::string> args;
+        args.push_back("gfortran");
+        args.push_back("-o");
+        args.push_back(outfile);
+        args.insert(args.end(), infiles.begin(), infiles.end());
+        args.insert(args.end(), extra_library_args.begin(), extra_library_args.end());
+        args.push_back("-L" + runtime_library_dir);
+        args.push_back("-Wl,-rpath," + runtime_library_dir);
+        args.push_back("-llfortran_runtime");
+        args.push_back("-lm");
+        std::string cmd = shell_join(args);
         if (verbose) {
             std::cout << cmd << std::endl;
         }
-        int err = system(cmd.c_str());
+        int err = exec_argv(args);
         if (err) {
             std::cout << "The command '" + cmd + "' failed." << std::endl;
             return 10;

@@ -326,6 +326,15 @@ if (WITH_LLVM AND (NOT EMSCRIPTEN OR LFORTRAN_BUILD_TO_WASM))
                 --workdir ${PROJECT_BINARY_DIR}/continue-compilation-output
                 ${CONTINUE_COMPILATION_OUTPUT_ARGS}
         )
+        if (NOT WIN32)
+            add_test(
+                NAME test_driver_link_spaces
+                COMMAND ${LFORTRAN_TEST_PYTHON}
+                    ${CMAKE_CURRENT_SOURCE_DIR}/test_driver_link_spaces.py
+                    --lfortran $<TARGET_FILE:lfortran>
+                    --workdir ${PROJECT_BINARY_DIR}/driver-link-spaces
+            )
+        endif()
         add_test(
             NAME test_asr_llvm_constructor_coverage
             COMMAND ${LFORTRAN_TEST_PYTHON}
