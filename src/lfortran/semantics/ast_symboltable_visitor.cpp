@@ -3809,11 +3809,31 @@ public:
                     result_names.push_back(name);
                 }
                 if (current_scope->get_symbol(name) == nullptr) {
-                    // an undeclared entry result takes the type of the function result
+                    // A distinct, undeclared entry result is a separate
+                    // variable. Its type comes from the implicit rules, not
+                    // from the host function's result: `h` is default real
+                    // even when the function result is double precision.
+                    ASR::ttype_t *entry_type = nullptr;
+                    if (compiler_options.implicit_typing && !name.empty()) {
+                        auto it = implicit_dictionary.find(std::string(1, name[0]));
+                        if (it != implicit_dictionary.end()) {
+                            entry_type = it->second;
+                        }
+                    }
+                    if (entry_type == nullptr) {
+                        if (compiler_options.implicit_typing) {
+                            diag.add(diag::Diagnostic(
+                                "Entry result '" + name + "' is not declared",
+                                diag::Level::Error, diag::Stage::Semantic, {
+                                    diag::Label("", {entry->base.base.loc})}));
+                            throw SemanticAbort();
+                        }
+                        entry_type = result->m_type;
+                    }
                     current_scope->add_symbol(name, ASR::down_cast<ASR::symbol_t>(ASRUtils::make_Variable_t_util(al,
                         entry->base.base.loc, current_scope, s2c(al, name), nullptr, 0,
                         ASR::intentType::Local, nullptr, nullptr, ASR::storage_typeType::Default,
-                        ASRUtils::duplicate_type(al, result->m_type), result->m_type_declaration,
+                        ASRUtils::duplicate_type(al, entry_type), nullptr,
                         ASR::abiType::Source, ASR::accessType::Public, ASR::presenceType::Required, false)));
                 }
             }
