@@ -3407,20 +3407,25 @@ public:
                 if (implicit_dictionary.find(first_letter) != implicit_dictionary.end()) {
                     ASR::ttype_t *t = implicit_dictionary[first_letter];
                     if (t == nullptr) {
-                        diag.semantic_error_label("Variable '" + var_name
-                            + "' is not declared", {loc},
-                            "'" + var_name + "' is undeclared");
-                        throw SemanticAbort();
-                    }
-                    ASR::intentType intent;
-                    if (std::find(current_procedure_args.begin(),
-                            current_procedure_args.end(), var_name) !=
-                            current_procedure_args.end()) {
-                        intent = ASRUtils::intent_unspecified;
+                        // implicit none. A dummy may still appear in a
+                        // dimension before its declaration.
+                        if (!(_processing_dimensions && !v)) {
+                            diag.semantic_error_label("Variable '" + var_name
+                                + "' is not declared", {loc},
+                                "'" + var_name + "' is undeclared");
+                            throw SemanticAbort();
+                        }
                     } else {
-                        intent = ASRUtils::intent_local;
+                        ASR::intentType intent;
+                        if (std::find(current_procedure_args.begin(),
+                                current_procedure_args.end(), var_name) !=
+                                current_procedure_args.end()) {
+                            intent = ASRUtils::intent_unspecified;
+                        } else {
+                            intent = ASRUtils::intent_local;
+                        }
+                        v = declare_implicit_variable2(loc, var_name, intent, t);
                     }
-                    v = declare_implicit_variable2(loc, var_name, intent, t);
                 } else {
                     ASR::intentType intent;
                     if (std::find(current_procedure_args.begin(),
@@ -3435,7 +3440,8 @@ public:
                 if (saved_scope) {
                     current_scope = saved_scope;
                 }
-            } else if (_processing_dimensions && !v) {
+            }
+            if (!v && _processing_dimensions) {
                 // Declare an implicit variable with integer type
                 ASR::ttype_t *type = ASRUtils::TYPE(ASR::make_Integer_t(al, loc, compiler_options.po.default_integer_kind));
                 SetChar variable_dependencies_vec;
@@ -3449,7 +3455,7 @@ public:
                     ASR::presenceType::Required, false));
                 pre_declared_array_dims[var_name] = 1;
                 current_scope->add_symbol(var_name, v);
-            } else {
+            } else if (!v) {
                 diag.semantic_error_label("Variable '" + var_name
                     + "' is not declared", {loc},
                     "'" + var_name + "' is undeclared");
