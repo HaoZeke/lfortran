@@ -26810,6 +26810,10 @@ public:
 
             if( x.m_args[i].m_value == nullptr ) {
                 LCOMPILERS_ASSERT(orig_arg != nullptr);
+                // An omitted optional character that is passed as a data
+                // pointer is a null pointer. GFortran and f2py use that,
+                // and present() tests the pointer. An array keeps its
+                // descriptor type; a null i8* would not match it.
                 if (pass_string_data) {
                     args.push_back(llvm::ConstantPointerNull::get(
                         llvm_utils->character_type));
@@ -29961,6 +29965,7 @@ public:
                 ASR::Function_t* subrout_called = ASR::down_cast<ASR::Function_t>(symbol_get_past_external(x.m_name));
                 for (size_t i = 0; i < subrout_called->n_args; i++) {
                     ASR::expr_t* expected_arg = subrout_called->m_args[i];
+                    if (i >= x.n_args || x.m_args[i].m_value == nullptr) continue;
                     ASR::expr_t* passed_arg = x.m_args[i].m_value;
                     ASR::ttype_t* expected_arg_type = ASRUtils::expr_type(expected_arg);
                     ASR::ttype_t* passed_arg_type = ASRUtils::expr_type(passed_arg);

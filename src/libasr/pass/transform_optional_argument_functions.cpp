@@ -93,9 +93,18 @@ class ReplacePresentCalls: public ASR::BaseExprReplacer<ReplacePresentCalls> {
             }
 
             if (i < f->n_args) {
-                *current_expr = ASRUtils::EXPR(ASR::make_Var_t(al, x->base.base.loc,
-                                    ASR::down_cast<ASR::Var_t>(f->m_args[i])->m_v));
-                return;
+                ASR::Variable_t* next = ASR::down_cast<ASR::Variable_t>(
+                    ASR::down_cast<ASR::Var_t>(f->m_args[i])->m_v);
+                // The argument inserted after an optional is its presence
+                // bit. A character dummy passed as a data pointer has no
+                // such bit; present() stays the intrinsic and tests the
+                // pointer. The next declared argument is not that test.
+                if (next->m_name && std::string(next->m_name).rfind(
+                        "__libasr_is_present_", 0) == 0) {
+                    *current_expr = ASRUtils::EXPR(ASR::make_Var_t(al, x->base.base.loc,
+                                        ASR::down_cast<ASR::Var_t>(f->m_args[i])->m_v));
+                    return;
+                }
             }
         }
         for (size_t i = 0; i < x->n_args; i++) {
@@ -135,8 +144,15 @@ class ReplacePresentCalls: public ASR::BaseExprReplacer<ReplacePresentCalls> {
             }
         }
 
-        *current_expr = ASRUtils::EXPR(ASR::make_Var_t(al, x->base.base.loc,
-                            ASR::down_cast<ASR::Var_t>(f->m_args[i])->m_v));
+        if (i < f->n_args) {
+            ASR::Variable_t* next = ASR::down_cast<ASR::Variable_t>(
+                ASR::down_cast<ASR::Var_t>(f->m_args[i])->m_v);
+            if (next->m_name && std::string(next->m_name).rfind(
+                    "__libasr_is_present_", 0) == 0) {
+                *current_expr = ASRUtils::EXPR(ASR::make_Var_t(al, x->base.base.loc,
+                                    ASR::down_cast<ASR::Var_t>(f->m_args[i])->m_v));
+            }
+        }
     }
 
 };
@@ -183,6 +199,17 @@ class TransformFunctionsWithOptionalArguments: public PassUtils::PassVisitor<Tra
                 ASR::symbol_t* arg_sym = ASR::down_cast<ASR::Var_t>(s->m_args[i])->m_v;
                 new_args.push_back(al, s->m_args[i]);
                 new_arg_types.push_back(al, ASRUtils::get_FunctionType(*s)->m_arg_types[i]);
+                // A character dummy passed as a data pointer has a hidden
+                // length. GFortran and f2py pass a null pointer when it is
+                // absent, and present() tests that pointer. An extra
+                // presence argument would sit where those callers put the
+                // next argument. A descriptor array keeps the presence
+                // argument, because it is not that pointer.
+                bool data_pointer_character = ASRUtils::is_string_dummy_with_hidden_length(
+                    *s, s->m_args[i]);
+                if( is_presence_optional(arg_sym, false) && data_pointer_character ) {
+                    continue;
+                }
                 if( is_presence_optional(arg_sym, true) ) {
                     sym2optionalargidx[&(s->base)].push_back(checked_integer_cast<int32_t>(new_args.size() - 1));
                     std::string presence_bit_arg_name = "__libasr_is_present_" + std::string(ASRUtils::symbol_name(arg_sym));
