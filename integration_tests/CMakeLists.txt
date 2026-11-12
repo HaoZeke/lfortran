@@ -5584,6 +5584,10 @@ RUN(NAME allocatable_statement_01 LABELS gfortran llvm) # ALLOCATABLE statement 
 RUN(NAME entry_32 LABELS gfortran llvm) # each ENTRY returns its own value
 RUN(NAME entry_33 LABELS gfortran llvm EXTRA_ARGS --implicit-typing) # undeclared ENTRY results follow the implicit rules
 RUN(NAME optional_character_01 LABELS gfortran llvm)
+RUN(NAME allocatable_character_array_01 LABELS gfortran llvm
+    EXTRAFILES allocatable_character_array_01_m.f90
+    EXTRA_ARGS --separate-compilation)
+RUN(NAME character_array_01 LABELS gfortran llvm)
 RUN(NAME dimensions_decl_order_01 LABELS gfortran llvm
     EXTRA_ARGS --implicit-typing) # a dummy may bound an array before it is declared, also under implicit none
 

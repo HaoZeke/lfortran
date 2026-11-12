@@ -1189,10 +1189,23 @@ namespace LCompilers {
                     array_exp,
                     ASRUtils::extract_type(array_type), llvm_utils->module)->getPointerTo();
                 ASR::String_t* str = ASRUtils::get_string_type(array_type);
-
-                memory_holder = llvm_utils->get_string_data(
-                        str,
-                        builder->CreateLoad(load_type, get_pointer_to_data(array_exp, array_type, array, llvm_utils->module)), true);
+                // The data pointer of an unallocated character array is null.
+                // Do not load through it to test the first element's string.
+                llvm::Value* data_ptr = builder->CreateLoad(load_type,
+                    get_pointer_to_data(array_exp, array_type, array, llvm_utils->module));
+                llvm::Value* data_ptr_int = builder->CreatePtrToInt(data_ptr,
+                    llvm::Type::getInt64Ty(context));
+                llvm::Value* is_data_null = builder->CreateICmpEQ(data_ptr_int,
+                    llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), 0));
+                llvm::BasicBlock *checkStrBB = llvm::BasicBlock::Create(context, "check_string_data", fn);
+                if (wrapperNullBB == nullptr) {
+                    wrapperNullBB = llvm::BasicBlock::Create(context, "string_data_null", fn);
+                }
+                builder->CreateCondBr(is_data_null, wrapperNullBB, checkStrBB);
+                builder->SetInsertPoint(wrapperNullBB);
+                builder->CreateBr(mergeBB);
+                builder->SetInsertPoint(checkStrBB);
+                memory_holder = llvm_utils->get_string_data(str, data_ptr, true);
             } else if(ASRUtils::non_unlimited_polymorphic_class(array_type)){
                 auto const struct_sym = ASR::down_cast<ASR::Struct_t>( ASRUtils::symbol_get_past_external(ASRUtils::get_struct_sym_from_struct_expr(array_exp)));
                 llvm::Type* const class_type = llvm_utils->getClassType(struct_sym);
