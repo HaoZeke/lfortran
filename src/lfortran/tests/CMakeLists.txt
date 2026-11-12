@@ -341,6 +341,13 @@ if (WITH_LLVM AND (NOT EMSCRIPTEN OR LFORTRAN_BUILD_TO_WASM))
                     --lfortran $<TARGET_FILE:lfortran>
                     --workdir ${PROJECT_BINARY_DIR}/driver-link-libz
             )
+            add_test(
+                NAME test_driver_openmp
+                COMMAND ${LFORTRAN_TEST_PYTHON}
+                    ${CMAKE_CURRENT_SOURCE_DIR}/test_driver_openmp.py
+                    --lfortran $<TARGET_FILE:lfortran>
+                    --workdir ${PROJECT_BINARY_DIR}/driver-openmp
+            )
         endif()
         add_test(
             NAME test_asr_llvm_constructor_coverage

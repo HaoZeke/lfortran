@@ -7896,6 +7896,7 @@ RUN(NAME all_01 LABELS gfortran llvm)
 RUN(NAME preprocessor_define_equals LABELS gfortran llvm EXTRA_ARGS --cpp GFORTRAN_ARGS -cpp)
 # -lz must resolve libz.so from the system C compiler's default search path.
 RUN(NAME driver_libz_01 LABELS gfortran llvm EXTRA_ARGS -lz GFORTRAN_ARGS -lz)
+RUN(NAME driver_openmp_01 LABELS gfortran llvm EXTRA_ARGS --openmp GFORTRAN_ARGS -fopenmp)
 RUN(NAME runtime_checks_01 LABELS gfortran llvm)
 RUN(NAME detect_leaks_01 LABELS gfortran llvm EXTRA_ARGS --detect-leaks)
 # lfortran_display is an LFortran runtime module that GFortran does not have.

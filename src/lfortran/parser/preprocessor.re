@@ -120,6 +120,12 @@ CPreprocessor::CPreprocessor(CompilerOptions &compiler_options)
     macro_definitions["__i386__"] = md;
 #endif
 #endif
+    // OpenMP 4.5. The lowering emits the GOMP runtime calls of that
+    // specification. A later `-D_OPENMP=` replaces this definition.
+    if (compiler_options.openmp) {
+        md.expansion = "201511";
+        macro_definitions["_OPENMP"] = md;
+    }
     for (auto &d : compiler_options.c_preprocessor_defines) {
         std::size_t idx = d.find("=");
         if (idx != std::string::npos) {

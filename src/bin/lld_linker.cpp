@@ -588,13 +588,28 @@ int link_elf(
     add_forwarded_linker_flags(args, linker_flags);
     args.add("-l" + runtime_lib);
 
-    if (openmp && !openmp_lib_dir.empty()) {
-        args.add("-L" + openmp_lib_dir);
-        if (!static_executable) {
-            args.add("-rpath");
-            args.add(openmp_lib_dir);
+    if (openmp) {
+        if (!openmp_lib_dir.empty()) {
+            args.add("-L" + openmp_lib_dir);
+            if (!static_executable) {
+                args.add("-rpath");
+                args.add(openmp_lib_dir);
+            }
         }
-        args.add("-lomp");
+        // The lowering emits GOMP_* calls, which live in libgomp. libomp is
+        // the LLVM runtime and is used when libgomp is not installed.
+        std::vector<std::string> omp_dirs = toolchain.library_dirs;
+        omp_dirs.insert(omp_dirs.end(), lib_dirs.begin(), lib_dirs.end());
+        if (!openmp_lib_dir.empty()) {
+            omp_dirs.push_back(openmp_lib_dir);
+        }
+        if (has_shared_library(omp_dirs, "gomp") || has_static_library(omp_dirs, "gomp")) {
+            args.add("-lgomp");
+        } else if (has_shared_library(omp_dirs, "omp") || has_static_library(omp_dirs, "omp")) {
+            args.add("-lomp");
+        } else {
+            args.add("-lgomp");
+        }
     }
     for (const std::string &library : extra_libs) {
         args.add(library);
@@ -793,10 +808,12 @@ int link_macho(
     add_forwarded_linker_flags(args, linker_flags);
     args.add("-l" + runtime_lib);
     args.add("-lm");
-    if (openmp && !openmp_lib_dir.empty()) {
-        args.add("-L" + openmp_lib_dir);
-        args.add("-rpath");
-        args.add(openmp_lib_dir);
+    if (openmp) {
+        if (!openmp_lib_dir.empty()) {
+            args.add("-L" + openmp_lib_dir);
+            args.add("-rpath");
+            args.add(openmp_lib_dir);
+        }
         args.add("-lomp");
     }
     for (const std::string &library : extra_libs) {
