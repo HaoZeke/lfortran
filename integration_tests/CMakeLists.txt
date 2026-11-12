@@ -5588,6 +5588,9 @@ RUN(NAME allocatable_character_array_01 LABELS gfortran llvm
     EXTRAFILES allocatable_character_array_01_m.f90
     EXTRA_ARGS --separate-compilation)
 RUN(NAME character_array_01 LABELS gfortran llvm)
+RUN(NAME implicit_unallocated_01 LABELS gfortran llvm
+    EXTRAFILES implicit_unallocated_01c.c
+    EXTRA_ARGS --implicit-interface --mangle-underscore-external)
 RUN(NAME dimensions_decl_order_01 LABELS gfortran llvm
     EXTRA_ARGS --implicit-typing) # a dummy may bound an array before it is declared, also under implicit none
 
