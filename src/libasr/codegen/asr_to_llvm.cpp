@@ -15161,7 +15161,7 @@ public:
                 llvm::Type* class_ty = llvm_utils->getClassType(class_st, false);
                 llvm::PointerType* class_ptr_ty = class_ty->getPointerTo();
                 llvm::Value* raw = llvm_utils->CreateLoad2(class_ptr_ty, slot);
-                llvm_utils->create_if_else(builder->CreateIsNull(raw), []() {}, [&]() {
+                auto wrap_raw_target = [&]() {
                     struct_api->create_new_vtable_for_struct_type(class_sym, module.get());
                     llvm::DataLayout data_layout(module->getDataLayout());
                     llvm::Value* bytes = llvm::ConstantInt::get(llvm::Type::getInt32Ty(context),
@@ -15177,6 +15177,31 @@ public:
                     }
                     builder->CreateStore(data, llvm_utils->create_gep2(class_ty, wrapper, 1));
                     builder->CreateStore(wrapper, slot);
+                };
+                llvm_utils->create_if_else(builder->CreateIsNull(raw), []() {}, [&]() {
+                    // A class pointer copied through integer bits is already
+                    // a {vptr, data*} box: its first word is a vtable address
+                    // in this program. A type(T) pointer is the object, and
+                    // that object's first word is a component. Leave a box
+                    // alone; wrapping it again makes the data pointer the
+                    // old box.
+#ifndef _WIN32
+                    llvm::PointerType* i8p = llvm::Type::getInt8Ty(context)->getPointerTo();
+                    llvm::Value* first = llvm_utils->CreateLoad2(i8p,
+                        builder->CreateBitCast(raw, i8p->getPointerTo()));
+                    llvm::Value* info = llvm_utils->CreateAlloca(
+                        llvm::ArrayType::get(i8p, 4), nullptr, "transfer_dladdr");
+                    llvm::FunctionType* dl_ty = llvm::FunctionType::get(
+                        llvm::Type::getInt32Ty(context), {i8p, i8p}, false);
+                    llvm::Value* in_program = builder->CreateCall(
+                        module->getOrInsertFunction("dladdr", dl_ty),
+                        {first, builder->CreateBitCast(info, i8p)});
+                    llvm_utils->create_if_else(builder->CreateICmpNE(in_program,
+                            llvm::ConstantInt::get(llvm::Type::getInt32Ty(context), 0)),
+                        []() {}, wrap_raw_target);
+#else
+                    wrap_raw_target();
+#endif
                 });
             } else if (!ASRUtils::is_pointer(ty) && !ASRUtils::is_allocatable(ty) &&
                     ASR::is_a<ASR::StructType_t>(*ASRUtils::extract_type(ty)) &&
