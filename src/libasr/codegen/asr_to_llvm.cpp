@@ -705,7 +705,15 @@ public:
         llvm::Value* arg;
         llvm::Type* type;
     };
+    // A real scalar passed to a call by a copy, so the variable's address
+    // does not escape. Written back after the call when the actual may change.
+    struct ScalarArgCopyback {
+        llvm::Value* dest;
+        llvm::Value* slot;
+        llvm::Type* type;
+    };
     std::vector<std::vector<ScalarDummyWriteback>> scalar_dummy_writebacks;
+    std::vector<ScalarArgCopyback> scalar_arg_copybacks;
     std::string mangle_prefix;
     bool prototype_only;
     llvm::StructType *complex_type_4, *complex_type_8, *complex_type_10,
@@ -11567,6 +11575,14 @@ public:
         if (ASRUtils::get_FunctionType(fn)->m_abi == ASR::abiType::BindC) {
             return false;
         }
+        // A contained procedure reaches this dummy through the host frame.
+        // Replacing the frame slot with a local would leave that procedure
+        // with the incoming pointer, or with a pointer the frame does not own.
+        for (auto &item : fn.m_symtab->get_scope()) {
+            if (ASR::is_a<ASR::Function_t>(*item.second)) {
+                return false;
+            }
+        }
         if (arg.m_value_attr || arg.m_target_attr || arg.m_is_volatile
                 || arg.m_common_block != nullptr
                 || arg.m_presence == ASR::presenceType::Optional
@@ -12797,6 +12813,78 @@ public:
             builder->CreateStore(llvm_utils->CreateLoad2(w.type, w.local), w.arg);
         }
         scalar_dummy_writebacks.pop_back();
+    }
+
+    void flush_scalar_arg_copybacks() {
+        std::vector<ScalarArgCopyback> pending = std::move(scalar_arg_copybacks);
+        scalar_arg_copybacks.clear();
+        for (ScalarArgCopyback &w : pending) {
+            builder->CreateStore(llvm_utils->CreateLoad2(w.type, w.slot), w.dest);
+        }
+    }
+
+    // Nested argument evaluation flushes only the copybacks of the inner call.
+    struct ScalarArgCopybackScope {
+        ASRToLLVMVisitor *v;
+        std::vector<ScalarArgCopyback> saved;
+        explicit ScalarArgCopybackScope(ASRToLLVMVisitor *v) : v(v) {
+            saved.swap(v->scalar_arg_copybacks);
+        }
+        ~ScalarArgCopybackScope() {
+            v->flush_scalar_arg_copybacks();
+            v->scalar_arg_copybacks = std::move(saved);
+        }
+    };
+
+    // Pass a real scalar variable through a temporary. Its own address then
+    // does not escape, so a later call does not have to reload it. The
+    // temporary is written back when the callee may modify the actual.
+    llvm::Value* copy_real_scalar_for_call(ASR::expr_t* actual, llvm::Value* value) {
+        if (!compiler_options.po.fast || actual == nullptr || value == nullptr
+                || !value->getType()->isPointerTy()
+                || !ASR::is_a<ASR::Var_t>(*actual)) {
+            return value;
+        }
+        ASR::symbol_t *sym = ASR::down_cast<ASR::Var_t>(actual)->m_v;
+        if (sym == nullptr) {
+            return value;
+        }
+        sym = symbol_get_past_external(sym);
+        if (sym == nullptr || !ASR::is_a<ASR::Variable_t>(*sym)) {
+            return value;
+        }
+        ASR::Variable_t *v = ASR::down_cast<ASR::Variable_t>(sym);
+        if (v->m_type == nullptr || v->m_target_attr || v->m_is_volatile
+                || v->m_common_block != nullptr
+                || ASRUtils::is_host_associated(*v)
+                || ASRUtils::is_array(v->m_type)
+                || ASRUtils::is_allocatable(v->m_type)
+                || ASRUtils::is_pointer(v->m_type)
+                || ASRUtils::is_character(*v->m_type)) {
+            return value;
+        }
+        ASR::ttype_t *t = ASRUtils::extract_type(v->m_type);
+        if (t == nullptr || !ASR::is_a<ASR::Real_t>(*t)) {
+            return value;
+        }
+        llvm::Type *val_type = llvm_utils->get_type_from_ttype_t_util(
+            actual, v->m_type, module.get());
+        if (val_type == nullptr || val_type->isPointerTy()) {
+            return value;
+        }
+#if LLVM_VERSION_MAJOR < 15
+        if (value->getType()->getPointerElementType() != val_type) {
+            return value;
+        }
+#endif
+        llvm::Value *loaded = llvm_utils->CreateLoad2(val_type, value);
+        llvm::AllocaInst *slot = llvm_utils->CreateAlloca(
+            val_type, nullptr, "scalar_arg_copy");
+        builder->CreateStore(loaded, slot);
+        if (v->m_intent != ASR::intentType::In) {
+            scalar_arg_copybacks.push_back(ScalarArgCopyback{value, slot, val_type});
+        }
+        return slot;
     }
 
     inline void define_function_exit(const ASR::Function_t& x) {
@@ -27191,6 +27279,7 @@ public:
                     builder->CreateStore(tmp, target);
                     tmp = target;
                 }
+                tmp = copy_real_scalar_for_call(x.m_args[i].m_value, tmp);
                 args.push_back(tmp);
                 continue;
             }
@@ -28853,6 +28942,7 @@ public:
                 }
             }
 
+            tmp = copy_real_scalar_for_call(x.m_args[i].m_value, tmp);
             args.push_back(tmp);
         }
         if (!skip_self) {
@@ -30286,6 +30376,7 @@ public:
     }
 
     void visit_SubroutineCall(const ASR::SubroutineCall_t &x) {
+        ScalarArgCopybackScope _copybacks(this);
         DeallocateStringsScope _scope(this);
         if (compiler_options.emit_debug_info) debug_emit_loc(x);
         if( ASRUtils::is_intrinsic_optimization(x.m_name) ) {
@@ -30992,6 +31083,7 @@ public:
     }
 
     void visit_FunctionCall(const ASR::FunctionCall_t &x) {
+        ScalarArgCopybackScope _copybacks(this);
         if ( compiler_options.emit_debug_info ) debug_emit_loc(x);
         if( ASRUtils::is_intrinsic_optimization(x.m_name) ) {
             ASR::Function_t* routine = ASR::down_cast<ASR::Function_t>(
