@@ -26487,15 +26487,11 @@ public:
             target_ptr = tmp;
         }
 
-        llvm::Value* zero_based_idx;
-        if (x.m_target->type == ASR::exprType::ArrayItem) {
-            ASR::ArrayItem_t* array_item = ASR::down_cast<ASR::ArrayItem_t>(x.m_target);
-            visit_expr_wrapper(array_item->m_args[0].m_right, true);
-            llvm::Value* array_index = tmp;
-            zero_based_idx = builder->CreateSub(array_index,llvm::ConstantInt::get(array_index->getType(), 1));
-        } else {
-            zero_based_idx = llvm::ConstantInt::get(llvm::Type::getInt32Ty(context), 0);
-        }
+        // transfer() copies from the start of its source, for the size of
+        // the mold. The target element is addressed on its own; using that
+        // index as a byte offset reads past a one-element source.
+        llvm::Value* zero_based_idx = llvm::ConstantInt::get(
+            llvm::Type::getInt32Ty(context), 0);
         
         ASR::String_t* src_str_type = ASR::down_cast<ASR::String_t>(
             ASRUtils::type_get_past_array(ASRUtils::expr_type(x.m_value)));
