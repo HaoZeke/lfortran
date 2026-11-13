@@ -19,6 +19,7 @@
 #include <llvm/IR/DerivedTypes.h>
 #include <llvm/IR/Function.h>
 #include <llvm/IR/IRBuilder.h>
+#include <llvm/IR/Dominators.h>
 #include <llvm/IR/Instructions.h>
 #include <llvm/IR/Intrinsics.h>
 #include <llvm/IR/LegacyPassManager.h>
@@ -1213,6 +1214,121 @@ static const char *libmvec_exp_name(bool is_float, unsigned width) {
     }
 }
 
+static void sink_call_to_its_users(llvm::Module &m, const char *name);
+
+static void eliminate_unused_alloc_pairs(llvm::Module &m) {
+    llvm::Function *malloc_fn = m.getFunction("_lfortran_malloc_alloc");
+    llvm::Function *free_fn = m.getFunction("_lfortran_free_alloc");
+    if (malloc_fn == nullptr) {
+        return;
+    }
+    std::vector<llvm::CallInst *> dead;
+    for (llvm::User *user : malloc_fn->users()) {
+        auto *call = llvm::dyn_cast<llvm::CallInst>(user);
+        if (call == nullptr || call->getCalledFunction() != malloc_fn) {
+            continue;
+        }
+        bool only_freed = true;
+        std::vector<llvm::CallInst *> frees;
+        for (llvm::User *use : call->users()) {
+            auto *free_call = llvm::dyn_cast<llvm::CallInst>(use);
+            if (free_call == nullptr || free_fn == nullptr
+                    || free_call->getCalledFunction() != free_fn) {
+                only_freed = false;
+                break;
+            }
+            frees.push_back(free_call);
+        }
+        if (!only_freed) {
+            continue;
+        }
+        dead.insert(dead.end(), frees.begin(), frees.end());
+        dead.push_back(call);
+    }
+    for (llvm::CallInst *call : dead) {
+        call->eraseFromParent();
+    }
+    if (llvm::Function *allocator = m.getFunction("_lfortran_get_default_allocator")) {
+        std::vector<llvm::CallInst *> unused;
+        for (llvm::User *user : allocator->users()) {
+            auto *call = llvm::dyn_cast<llvm::CallInst>(user);
+            if (call != nullptr && call->getCalledFunction() == allocator
+                    && call->user_empty()) {
+                unused.push_back(call);
+            }
+        }
+        for (llvm::CallInst *call : unused) {
+            call->eraseFromParent();
+        }
+    }
+    // The allocator is only needed to format an error that this call does
+    // not take. Leave it in that block so the hot path does not call it.
+    sink_call_to_its_users(m, "_lfortran_get_default_allocator");
+}
+
+static void sink_call_to_its_users(llvm::Module &m, const char *name) {
+    llvm::Function *fn = m.getFunction(name);
+    if (fn == nullptr) {
+        return;
+    }
+    std::vector<llvm::CallInst *> calls;
+    for (llvm::User *user : fn->users()) {
+        auto *call = llvm::dyn_cast<llvm::CallInst>(user);
+        if (call != nullptr && call->getCalledFunction() == fn) {
+            calls.push_back(call);
+        }
+    }
+    for (llvm::CallInst *call : calls) {
+        if (call->user_empty() || call->getFunction() == nullptr) {
+            continue;
+        }
+        llvm::DominatorTree tree(*call->getFunction());
+        llvm::BasicBlock *home = nullptr;
+        bool ok = true;
+        for (llvm::User *user : call->users()) {
+            auto *inst = llvm::dyn_cast<llvm::Instruction>(user);
+            if (inst == nullptr) {
+                ok = false;
+                break;
+            }
+            llvm::BasicBlock *bb = inst->getParent();
+            if (home == nullptr || tree.dominates(bb, home)) {
+                home = bb;
+            }
+        }
+        if (!ok || home == nullptr || home == call->getParent()) {
+            continue;
+        }
+        for (llvm::User *user : call->users()) {
+            auto *inst = llvm::cast<llvm::Instruction>(user);
+            if (!tree.dominates(home, inst->getParent())) {
+                ok = false;
+                break;
+            }
+        }
+        if (!ok) {
+            continue;
+        }
+        llvm::Instruction *first = nullptr;
+        for (llvm::Instruction &inst : *home) {
+            for (llvm::Use &op : inst.operands()) {
+                if (op.get() == call) {
+                    first = &inst;
+                    break;
+                }
+            }
+            if (first != nullptr) {
+                break;
+            }
+        }
+        if (first != nullptr) {
+            call->moveBefore(first);
+        } else if (llvm::Instruction *term = home->getTerminator()) {
+            call->moveBefore(term);
+        }
+    }
+}
+
 static void lower_vector_exp_to_libmvec(llvm::Module &m) {
     llvm::Triple triple(m.getTargetTriple());
     if (!triple.isX86() || triple.isArch32Bit()) {
@@ -1420,6 +1536,11 @@ void LLVMEvaluator::opt(llvm::Module &m) {
     // calls scalar exp once per lane. glibc libmvec has the widened entry
     // points; use those instead.
     lower_vector_exp_to_libmvec(m);
+    // String temporaries for an untaken STOP/WRITE are allocated on entry
+    // and freed on the way out, with no other use. malloc_alloc is not a
+    // recognized malloc, so the pair survives -O3. d1mach pays for that on
+    // every call.
+    eliminate_unused_alloc_pairs(m);
 }
 
 std::string LLVMEvaluator::module_to_string(llvm::Module &m) {
