@@ -4201,6 +4201,7 @@ RUN(NAME endfile_iomsg_01 LABELS gfortran llvm llvm_wasm llvm_wasm_emcc)
 RUN(NAME class_01 LABELS gfortran llvm)
 RUN(NAME class_pointer_component_01 LABELS gfortran llvm)
 RUN(NAME class_pointer_dispatch_01 LABELS gfortran llvm)
+RUN(NAME class_pointer_roundtrip_01 LABELS gfortran llvm)
 RUN(NAME cpp_flag_01 LABELS gfortran llvm
         EXTRA_ARGS -cpp -DCPP_FLAG_01
         GFORTRAN_ARGS -cpp -DCPP_FLAG_01)

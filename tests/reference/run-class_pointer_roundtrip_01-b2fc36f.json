@@ -1,0 +1,13 @@
+{
+    "basename": "run-class_pointer_roundtrip_01-b2fc36f",
+    "cmd": "lfortran --no-color {infile}",
+    "infile": "tests/../integration_tests/class_pointer_roundtrip_01.f90",
+    "infile_hash": "70531741b8cb618e720d3d5a5fa4981f180bb5b467a370a98194532e",
+    "outfile": null,
+    "outfile_hash": null,
+    "stdout": "run-class_pointer_roundtrip_01-b2fc36f.stdout",
+    "stdout_hash": "66a02dbf2489a482a6bacad0c34674b7f315936ad5824c0bf794aaad",
+    "stderr": null,
+    "stderr_hash": null,
+    "returncode": 0
+}
