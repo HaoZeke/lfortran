@@ -4640,12 +4640,30 @@ public:
 
     void generate_MinMax(ASR::expr_t** m_args, size_t n_args, bool is_max) {
         LCOMPILERS_ASSERT(n_args >= 2);
-        this->visit_expr_wrapper(m_args[0], true);
-        llvm::Value *result = tmp;
+        // A pointer associate, such as `associate(n => dt%n)`, is the address
+        // of the target. The surrounding statement may be loading only that
+        // address (`ptr_loads` of 1). `min`/`max` compare the values.
+        auto load_minmax_arg = [&](ASR::expr_t* arg) {
+            this->visit_expr_load_wrapper(arg,
+                LLVM::is_llvm_pointer(*ASRUtils::expr_type(arg)) ? 2 : 1, true);
+            llvm::Value* value = tmp;
+            load_non_array_non_character_pointers(arg, ASRUtils::expr_type(arg), value);
+            return value;
+        };
+        llvm::Value *result = load_minmax_arg(m_args[0]);
         llvm::Type *val_type = result->getType();
         for (size_t i = 1; i < n_args; i++) {
-            this->visit_expr_wrapper(m_args[i], true);
-            llvm::Value *arg = tmp;
+            llvm::Value *arg = load_minmax_arg(m_args[i]);
+            if (arg->getType() != val_type && arg->getType()->isIntegerTy()
+                    && val_type->isIntegerTy()) {
+                unsigned arg_bits = arg->getType()->getIntegerBitWidth();
+                unsigned res_bits = val_type->getIntegerBitWidth();
+                if (arg_bits < res_bits) {
+                    arg = builder->CreateSExt(arg, val_type);
+                } else if (arg_bits > res_bits) {
+                    arg = builder->CreateTrunc(arg, val_type);
+                }
+            }
             if (val_type->isFloatingPointTy()) {
                 // Use ordered comparison for Fortran-compatible NaN propagation
                 // If either operand is NaN, comparison returns false, preserving result
