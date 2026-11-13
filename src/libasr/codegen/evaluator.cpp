@@ -1535,6 +1535,89 @@ static bool narrow_gather_index(llvm::GetElementPtrInst* gep) {
     return true;
 }
 
+// (wy * wv) / theta keeps two vector multiplies. Under fast-math this is
+// wy * (wv / theta), and wv/theta does not depend on the gathered wy, so
+// the later LICM pass lifts it. The shallower factor is the one divided:
+// the gathered value has the longer address chain.
+static int value_depth(llvm::Value* v, int depth) {
+    auto* inst = llvm::dyn_cast<llvm::Instruction>(v);
+    if (inst == nullptr || depth > 12) {
+        return 0;
+    }
+    int best = 0;
+    for (llvm::Value* op : inst->operands()) {
+        best = std::max(best, value_depth(op, depth + 1));
+    }
+    return best + 1;
+}
+
+static void reassociate_invariant_quotient(llvm::Module& m) {
+    for (llvm::Function& fn : m) {
+        if (fn.empty()) {
+            continue;
+        }
+        llvm::SmallVector<llvm::BinaryOperator*, 8> divs;
+        for (llvm::BasicBlock& bb : fn) {
+            for (llvm::Instruction& inst : bb) {
+                auto* div = llvm::dyn_cast<llvm::BinaryOperator>(&inst);
+                if (div == nullptr || div->getOpcode() != llvm::Instruction::FDiv
+                        || !div->getFastMathFlags().allowReassoc()) {
+                    continue;
+                }
+                auto* mul = llvm::dyn_cast<llvm::BinaryOperator>(div->getOperand(0));
+                if (mul == nullptr || mul->getOpcode() != llvm::Instruction::FMul
+                        || !mul->hasOneUse()
+                        || !mul->getFastMathFlags().allowReassoc()) {
+                    continue;
+                }
+                divs.push_back(div);
+            }
+        }
+        for (llvm::BinaryOperator* div : divs) {
+            auto* mul = llvm::cast<llvm::BinaryOperator>(div->getOperand(0));
+            llvm::Value* left = mul->getOperand(0);
+            llvm::Value* right = mul->getOperand(1);
+            llvm::Value* shallow = value_depth(left, 0) <= value_depth(right, 0)
+                ? left : right;
+            llvm::Value* deep = shallow == left ? right : left;
+            llvm::Value* denom = div->getOperand(1);
+            // Place wv/theta next to those loads, which are outside the
+            // inner loop, so a later pass cannot sink 1/theta back in and
+            // multiply by wv on every element.
+            llvm::Instruction* insert_after = nullptr;
+            auto* shallow_i = llvm::dyn_cast<llvm::Instruction>(shallow);
+            auto* denom_i = llvm::dyn_cast<llvm::Instruction>(denom);
+            if (shallow_i != nullptr && denom_i != nullptr
+                    && shallow_i->getParent() == denom_i->getParent()) {
+                insert_after = shallow_i->comesBefore(denom_i) ? denom_i : shallow_i;
+            } else if (denom_i != nullptr && shallow_i == nullptr) {
+                insert_after = denom_i;
+            } else if (shallow_i != nullptr && denom_i == nullptr) {
+                insert_after = shallow_i;
+            }
+            llvm::IRBuilder<> builder(div);
+            if (insert_after != nullptr && insert_after->getNextNode() != nullptr
+                    && insert_after->getParent() != div->getParent()) {
+                builder.SetInsertPoint(insert_after->getNextNode());
+            }
+            builder.setFastMathFlags(div->getFastMathFlags());
+            llvm::Value* scale = builder.CreateFDiv(shallow, denom);
+            // Without reassoc on this multiply, the Reassociate pass cannot
+            // turn a*(wv/theta) back into (a*wv)*(1/theta) and leave both
+            // multiplies in the loop.
+            llvm::FastMathFlags locked = div->getFastMathFlags();
+            locked.setAllowReassoc(false);
+            builder.setFastMathFlags(locked);
+            llvm::Value* prod = builder.CreateFMul(deep, scale);
+            div->replaceAllUsesWith(prod);
+            div->eraseFromParent();
+            if (mul->use_empty()) {
+                mul->eraseFromParent();
+            }
+        }
+    }
+}
+
 static void narrow_gather_indices(llvm::Module& m) {
     for (llvm::Function& fn : m) {
         if (fn.empty()) {
@@ -1557,6 +1640,7 @@ static void narrow_gather_indices(llvm::Module& m) {
 void LLVMEvaluator::opt(llvm::Module &m) {
     configure_module(m);
     disable_load_pre();
+    reassociate_invariant_quotient(m);
     narrow_gather_indices(m);
 
 #if LLVM_VERSION_MAJOR >= 17
