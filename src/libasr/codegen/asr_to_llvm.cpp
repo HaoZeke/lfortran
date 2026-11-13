@@ -21341,6 +21341,11 @@ public:
                         tmp = builder->CreateFPExt(tmp, llvm::Type::getDoubleTy(context));
                         zero = llvm::ConstantFP::get(context, llvm::APFloat(0.0));
                         break;
+                    case 10:
+                        target_type = complex_type_10;
+                        tmp = builder->CreateFPCast(tmp, llvm_utils->getFPType(10));
+                        zero = llvm::ConstantFP::get(llvm_utils->getFPType(10), 0.0);
+                        break;
                     case 16:
                         target_type = complex_type_16;
                         tmp = builder->CreateFPExt(tmp, llvm_utils->getFPType(16));
@@ -21368,6 +21373,11 @@ public:
                         target_type = llvm::Type::getDoubleTy(context);
                         complex_type = complex_type_8;
                         zero = llvm::ConstantFP::get(context, llvm::APFloat(0.0));
+                        break;
+                    case 10:
+                        target_type = llvm_utils->getFPType(10);
+                        complex_type = complex_type_10;
+                        zero = llvm::ConstantFP::get(llvm_utils->getFPType(10), 0.0);
                         break;
                     case 16:
                         target_type = llvm_utils->getFPType(16);
