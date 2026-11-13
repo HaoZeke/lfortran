@@ -9383,20 +9383,15 @@ public:
 
         ASRUtils::make_ArrayBroadcast_t_util(al, x.base.base.loc, target, value);
 
-        // Intrinsic assignment to an allocatable array from an array
-        // constructor allocates the left hand side (F2018 10.2.1.3). That
-        // does not depend on --realloc-lhs-arrays, which still gates other
-        // right hand sides such as a function result or matmul.
+        // Intrinsic assignment to an allocatable array allocates the left
+        // hand side with the shape of the right hand side, for every
+        // element type (F2018 10.2.1.3). This does not depend on
+        // --realloc-lhs-arrays.
         bool realloc_lhs = compiler_options.po.realloc_lhs_arrays;
-        if (!realloc_lhs && ASRUtils::is_allocatable(ASRUtils::expr_type(target))
+        if (!realloc_lhs && overloaded_stmt == nullptr
+                && ASRUtils::is_allocatable(ASRUtils::expr_type(target))
                 && ASRUtils::is_array(ASRUtils::expr_type(target))) {
-            ASR::expr_t* rhs = value;
-            ASR::expr_t* rhs_value = ASRUtils::expr_value(rhs);
-            if (ASR::is_a<ASR::ArrayConstructor_t>(*rhs) ||
-                    (rhs_value != nullptr &&
-                     ASR::is_a<ASR::ArrayConstructor_t>(*rhs_value))) {
-                realloc_lhs = true;
-            }
+            realloc_lhs = true;
         }
         tmp = ASRUtils::make_Assignment_t_util(al, x.base.base.loc, target, value,
                             overloaded_stmt, realloc_lhs, false);
