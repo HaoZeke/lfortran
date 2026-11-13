@@ -3168,6 +3168,41 @@ namespace LCompilers {
                     i8_ptr,
                     i64, i32
                 });
+        // A fixed-length destination cannot be reallocated. Copying through
+        // the runtime still calls the allocator and strcpy on every
+        // assignment (the task string in L-BFGS-B). The bytes go straight
+        // into the existing buffer, padded with blanks.
+        auto *kind_const = llvm::dyn_cast<llvm::ConstantInt>(char_kind);
+        auto *rhs_const = llvm::dyn_cast<llvm::ConstantInt>(rhs_len);
+        if (!is_dest_deferred && !is_dest_allocatable
+                && kind_const && kind_const->isOne()
+                && rhs_const && rhs_const->getValue().ule(64)) {
+            // The source length is a small constant, so the copy is a fixed
+            // number of bytes and the optimizer turns it into moves. A
+            // variable min() stays a memcpy call, which is what the task
+            // assignments in dcsrch were paying for.
+            uint64_t rhs_n = rhs_const->getZExtValue();
+            llvm::Value *dst = CreateLoad2(character_type, lhs_data);
+            llvm::Value *dst_len = CreateLoad2(i64, lhs_len);
+            llvm::Value *rhs_n_val = llvm::ConstantInt::get(i64, rhs_n);
+            create_if_else(builder->CreateICmpUGE(dst_len, rhs_n_val), [&]() {
+                if (rhs_n > 0) {
+                    builder->CreateMemCpy(dst, llvm::MaybeAlign(),
+                        rhs_data, llvm::MaybeAlign(), rhs_n_val);
+                }
+                create_if_else(builder->CreateICmpUGT(dst_len, rhs_n_val), [&]() {
+                    llvm::Value *pad = builder->CreateInBoundsGEP(
+                        llvm::Type::getInt8Ty(context), dst, rhs_n_val);
+                    builder->CreateMemSet(pad,
+                        llvm::ConstantInt::get(llvm::Type::getInt8Ty(context), ' '),
+                        builder->CreateSub(dst_len, rhs_n_val), llvm::MaybeAlign());
+                }, []() {});
+            }, [&]() {
+                builder->CreateMemMove(dst, llvm::MaybeAlign(),
+                    rhs_data, llvm::MaybeAlign(), dst_len);
+            });
+            return dst;
+        }
         llvm::Value* allocator = get_allocator(module);
         return builder->CreateCall(fn, {
             allocator,

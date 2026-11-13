@@ -2124,6 +2124,52 @@ public:
         llvm::Value* left_arg, llvm::Value* left_arg_len,
         llvm::Value* right_arg, llvm::Value* right_arg_len)
     {
+        // A task string compared with a short literal ('FG', 'START') is a
+        // handful of bytes. Emitting that here lets LLVM fold it; a call to
+        // str_compare does not.
+        auto *len_l = llvm::dyn_cast<llvm::ConstantInt>(left_arg_len);
+        auto *len_r = llvm::dyn_cast<llvm::ConstantInt>(right_arg_len);
+        if (len_l && len_r && len_l->getValue().ule(64) && len_r->getValue().ule(64)) {
+            uint64_t n1 = len_l->getZExtValue();
+            uint64_t n2 = len_r->getZExtValue();
+            uint64_t n = std::max(n1, n2);
+            llvm::Function *fn = builder->GetInsertBlock()->getParent();
+            llvm::BasicBlock &entry = fn->getEntryBlock();
+            llvm::IRBuilder<> entry_b(&entry, entry.begin());
+            if (llvm::Instruction *ip = entry.getFirstNonPHI()) {
+                entry_b.SetInsertPoint(ip);
+            }
+            llvm::AllocaInst *slot = entry_b.CreateAlloca(llvm_utils->i32, nullptr, "strcmp.res");
+            builder->CreateStore(llvm::ConstantInt::get(llvm_utils->i32, 0), slot);
+            llvm::BasicBlock *done = llvm::BasicBlock::Create(context, "strcmp.done");
+            llvm::Type *i8 = llvm::Type::getInt8Ty(context);
+            llvm::Value *blank = llvm::ConstantInt::get(i8, ' ');
+            for (uint64_t i = 0; i < n; i++) {
+                llvm::Value *b1 = blank;
+                llvm::Value *b2 = blank;
+                llvm::Value *idx = llvm::ConstantInt::get(llvm_utils->i64, i);
+                if (i < n1) {
+                    b1 = builder->CreateLoad(i8, builder->CreateInBoundsGEP(
+                        i8, left_arg, idx));
+                }
+                if (i < n2) {
+                    b2 = builder->CreateLoad(i8, builder->CreateInBoundsGEP(
+                        i8, right_arg, idx));
+                }
+                llvm::BasicBlock *diff = llvm::BasicBlock::Create(context, "strcmp.diff");
+                llvm::BasicBlock *same = llvm::BasicBlock::Create(context, "strcmp.same");
+                builder->CreateCondBr(builder->CreateICmpNE(b1, b2), diff, same);
+                start_new_block(diff);
+                builder->CreateStore(builder->CreateSub(
+                    builder->CreateZExt(b1, llvm_utils->i32),
+                    builder->CreateZExt(b2, llvm_utils->i32)), slot);
+                builder->CreateBr(done);
+                start_new_block(same);
+            }
+            builder->CreateBr(done);
+            start_new_block(done);
+            return llvm_utils->CreateLoad2(llvm_utils->i32, slot);
+        }
         std::string runtime_func_name = "str_compare";
         llvm::Function *fn = LLVM::get_or_declare_function(*module, runtime_func_name,
                 llvm_utils->i32, {

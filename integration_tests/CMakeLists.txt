@@ -7989,6 +7989,10 @@ RUN(NAME display_data_01 LABELS llvm NO_LLVM_GOC)
 RUN(NAME scalar_partial_sum_01 LABELS gfortran llvm)
 RUN(NAME vector_exp_01 LABELS gfortran llvm)
 RUN(NAME call_loop_01 LABELS gfortran llvm)
+RUN(NAME char_task_01 LABELS gfortran llvm)
+# Strided inner product. --fast must keep the sum, including when the
+# strided operand is not gathered.
+RUN(NAME matmul_strided_01 LABELS gfortran llvm EXTRA_ARGS --fast)
 
 if (LFORTRAN_SMOKE)
     get_property(smoke_tests DIRECTORY PROPERTY TESTS)
