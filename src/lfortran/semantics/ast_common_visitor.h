@@ -25039,21 +25039,29 @@ public:
         }
     }
 
-    // True if `proc` is an external procedure defined in this file and,
-    // with --implicit-argument-casting, an actual of `args` has another
-    // numeric type or kind than its dummy (a REAL array passed to a COMPLEX
-    // dummy, say). The caller has no explicit interface to an external
-    // procedure, so such a reference is made through an interface built
-    // from its actuals, exactly as when the procedure is defined in another
-    // file. Integer kind mismatches keep their own handling.
+    // True if `proc` is an external procedure defined in this file and an
+    // actual of `args` has another numeric type or kind than its dummy.
+    // `--implicit-argument-casting` allows every such mismatch. With only
+    // `--implicit-interface`, a real actual may be passed to an integer
+    // dummy: the reference is made through an interface built from the
+    // actuals, so the bytes are not converted, as gfortran does for an
+    // external procedure. Integer kind mismatches keep their own handling.
     bool is_mismatched_external_procedure_call(ASR::symbol_t* proc,
             const Vec<ASR::call_arg_t> &args) {
         auto definition = external_procedure_definitions.find(proc);
         if (definition != external_procedure_definitions.end()) {
             proc = definition->second;
         }
+        // `--implicit-argument-casting` allows every numeric mismatch.
+        // `--implicit-interface` alone allows a real workspace to be
+        // passed to an integer dummy: the call uses an interface built
+        // from the actuals, so the bytes are not converted. That is what
+        // gfortran does for an external procedure.
         if (!compiler_options.implicit_argument_casting
-                || !ASR::is_a<ASR::Function_t>(*proc)
+                && !compiler_options.implicit_interface) {
+            return false;
+        }
+        if (!ASR::is_a<ASR::Function_t>(*proc)
                 || ASRUtils::symbol_parent_symtab(proc)->parent != nullptr) {
             return false;
         }
@@ -25079,12 +25087,22 @@ public:
             ASR::ttype_t* dummy_elem = ASRUtils::type_get_past_array(
                 ASRUtils::type_get_past_allocatable_pointer(
                     ASRUtils::expr_type(fn->m_args[i])));
-            if (is_numeric(actual_elem) && is_numeric(dummy_elem)
+            bool numeric_mismatch = is_numeric(actual_elem) && is_numeric(dummy_elem)
                     && !(ASR::is_a<ASR::Integer_t>(*actual_elem)
                         && ASR::is_a<ASR::Integer_t>(*dummy_elem))
                     && (actual_elem->type != dummy_elem->type
                         || ASRUtils::extract_kind_from_ttype_t(actual_elem)
-                            != ASRUtils::extract_kind_from_ttype_t(dummy_elem))) {
+                            != ASRUtils::extract_kind_from_ttype_t(dummy_elem));
+            if (!numeric_mismatch) {
+                continue;
+            }
+            if (compiler_options.implicit_argument_casting) {
+                return true;
+            }
+            // Real workspace, integer dummy. The address of the real
+            // element is what the integer dummy reads.
+            if (ASR::is_a<ASR::Real_t>(*actual_elem)
+                    && ASR::is_a<ASR::Integer_t>(*dummy_elem)) {
                 return true;
             }
         }

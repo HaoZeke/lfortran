@@ -7911,6 +7911,8 @@ RUN(NAME detect_leaks_01 LABELS gfortran llvm EXTRA_ARGS --detect-leaks)
 # lfortran_display is an LFortran runtime module that GFortran does not have.
 # Its procedures do not link with --separate-compilation yet (#15852).
 RUN(NAME display_data_01 LABELS llvm NO_LLVM_GOC)
+# Real workspace passed to an integer dummy. The bytes are not converted.
+RUN(NAME legacy_real_to_integer_01 LABELS gfortran llvm EXTRA_ARGS --implicit-interface --legacy-array-sections GFORTRAN_ARGS -std=legacy)
 
 if (LFORTRAN_SMOKE)
     get_property(smoke_tests DIRECTORY PROPERTY TESTS)
