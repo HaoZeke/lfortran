@@ -7990,6 +7990,10 @@ RUN(NAME scalar_partial_sum_01 LABELS gfortran llvm)
 # Half of tiny() is subnormal. Fast math flushes it, as gfortran does
 # when fast math is enabled.
 RUN(NAME fast_math_ftz_01 LABELS gfortran llvm EXTRAFILES fast_math_ftz_01_c.c EXTRA_ARGS --fast GFORTRAN_ARGS -ffast-math)
+# Local numeric array storage is 32-byte aligned. gfortran gets that from
+# the stack frame, which depends on the optimization level, so this locks
+# the allocator contract on the LLVM backend.
+RUN(NAME array_align_01 LABELS llvm)
 RUN(NAME vector_exp_01 LABELS gfortran llvm)
 RUN(NAME call_loop_01 LABELS gfortran llvm)
 RUN(NAME char_task_01 LABELS gfortran llvm)

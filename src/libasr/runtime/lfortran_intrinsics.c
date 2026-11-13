@@ -4,6 +4,11 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
+#if defined(__linux__)
+#include <malloc.h>
+#elif defined(__APPLE__)
+#include <malloc/malloc.h>
+#endif
 #include "hashtable.h"
 #include <math.h>
 #include <complex.h>
@@ -523,14 +528,67 @@ struct Stacktrace {
 
 /* --- Default allocator implementation --- */
 
+/* glibc malloc aligns to 16 bytes. AVX BLAS kernels (and gfortran's local
+   numeric arrays, which realign the stack to 32 bytes) want 32. A numeric
+   array is a multiple of the element size, so those requests are aligned
+   here. Smaller requests stay with malloc. */
+static void* aligned_alloc_32(size_t size) {
+    void *p = NULL;
+    if (size == 0) size = 1;
+#if defined(_WIN32)
+    p = malloc(size);
+    return p;
+#else
+    if (posix_memalign(&p, 32, size) != 0) return NULL;
+    return p;
+#endif
+}
+
+static int want_blas_alignment(int64_t size) {
+#if defined(_WIN32)
+    (void)size;
+    return 0;
+#else
+    return size >= 32 && (size % 8) == 0;
+#endif
+}
+
 static void* default_alloc(void* context, int64_t size) {
     (void)context;
+    if (size <= 0) size = 1;
+    if (want_blas_alignment(size)) {
+        return aligned_alloc_32((size_t)size);
+    }
     return malloc((size_t)size);
 }
 
 static void* default_realloc_func(void* context, void* ptr, int64_t new_size) {
+    size_t old_bytes, copy_bytes;
+    void *fresh;
     (void)context;
+    if (new_size <= 0) new_size = 1;
+    if (ptr == NULL) return default_alloc(NULL, new_size);
+    if (!want_blas_alignment(new_size)) {
+        return realloc(ptr, (size_t)new_size);
+    }
+#if defined(__linux__) || defined(__APPLE__)
+    fresh = aligned_alloc_32((size_t)new_size);
+    if (fresh == NULL) return NULL;
+#if defined(__linux__)
+    old_bytes = malloc_usable_size(ptr);
+#else
+    old_bytes = malloc_size(ptr);
+#endif
+    copy_bytes = old_bytes < (size_t)new_size ? old_bytes : (size_t)new_size;
+    memcpy(fresh, ptr, copy_bytes);
+    free(ptr);
+    return fresh;
+#else
+    (void)old_bytes;
+    (void)copy_bytes;
+    (void)fresh;
     return realloc(ptr, (size_t)new_size);
+#endif
 }
 
 static void default_dealloc(void* context, void* ptr) {
