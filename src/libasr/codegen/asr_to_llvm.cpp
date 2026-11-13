@@ -4799,6 +4799,25 @@ public:
             return;
         }
         switch (static_cast<ASRUtils::IntrinsicElementalFunctions>(x.m_intrinsic_id)) {
+            case ASRUtils::IntrinsicElementalFunctions::Loc: {
+                // gfortran extension: the address of the argument as an
+                // integer(8). Opaque pointers have no element type, so do
+                // not ask is_nested_pointer (it calls getContainedType).
+                int64_t ptr_loads_copy = ptr_loads;
+                ptr_loads = 0;
+                this->visit_expr(*x.m_args[0]);
+                ptr_loads = ptr_loads_copy;
+                ASR::ttype_t* arg_type = ASRUtils::get_contained_type(
+                    ASRUtils::expr_type(x.m_args[0]));
+                if (ASRUtils::is_array(arg_type)) {
+                    llvm::Type* elem_type = llvm_utils->get_type_from_ttype_t_util(
+                        ASRUtils::get_contained_type(arg_type), nullptr, module.get());
+                    tmp = llvm_utils->CreateLoad2(elem_type->getPointerTo(),
+                        arr_descr->get_pointer_to_data(elem_type, tmp));
+                }
+                tmp = builder->CreatePtrToInt(tmp, llvm::Type::getInt64Ty(context));
+                break;
+            }
             case ASRUtils::IntrinsicElementalFunctions::ListIndex: {
                 ASR::expr_t* m_arg = x.m_args[0];
                 ASR::expr_t* m_ele = x.m_args[1];

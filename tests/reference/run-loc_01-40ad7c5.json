@@ -1,0 +1,13 @@
+{
+    "basename": "run-loc_01-40ad7c5",
+    "cmd": "lfortran --no-color {infile}",
+    "infile": "tests/../integration_tests/loc_01.f90",
+    "infile_hash": "71711adda991586067c01e0ad49d8bcf72c9966f173156739ccbcfe3",
+    "outfile": null,
+    "outfile_hash": null,
+    "stdout": "run-loc_01-40ad7c5.stdout",
+    "stdout_hash": "67da47b86573931aa0b0cdc49307c96f19de61c9d039c40f3b80a2e0",
+    "stderr": null,
+    "stderr_hash": null,
+    "returncode": 0
+}

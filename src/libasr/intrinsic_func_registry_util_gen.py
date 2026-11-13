@@ -778,7 +778,7 @@ intrinsic_funcs_args = {
     "Loc": [
         {
             "args": [("any",)],
-            "return": "int32"
+            "return": "int64"
         }
     ],
     "Dprod": [
@@ -946,6 +946,9 @@ intrinsic_funcs_args = {
 }
 
 skip_create_func = ["Partition"]
+# loc() of an array is the address of the array, a scalar integer,
+# not an elemental array of addresses.
+scalar_result_fn = ["Loc"]
 compile_time_only_fn = [
     "Epsilon",
     "Radix",
@@ -955,7 +958,6 @@ compile_time_only_fn = [
     "Precision",
     "Tiny",
     "Huge",
-    "Loc",
     "BitSize",
     "NewLine",
     "Kind",
@@ -1230,17 +1232,18 @@ def add_create_func_return_src(func_name):
             "m_args.p, m_args.n, 0, return_type, m_value);\n"
 
     else:
-        src += indent * 2 +     f"for( size_t i = 0; i < {no_of_args}; i++ ) " + "{\n"
-        src += indent * 3 +         "ASR::ttype_t* type = ASRUtils::expr_type(args[i]);\n"
-        src += indent * 3 +         "if (ASRUtils::is_array(type)) {\n"
-        src += indent * 4 +             "ASR::dimension_t* m_dims = nullptr;\n"
-        src += indent * 4 +             "size_t n_dims = ASRUtils::extract_dimensions_from_ttype(type, m_dims);\n"
-        src += indent * 4 +             "return_type = ASRUtils::make_Array_t_util(al, type->base.loc, "
-        src +=                              "return_type, m_dims, n_dims, ASR::abiType::Source, false, "
-        src +=                              "ASR::array_physical_typeType::DescriptorArray);\n"
-        src += indent * 4 +             "break;\n"
-        src += indent * 3 +         "}\n"
-        src += indent * 2 +     "}\n"
+        if func_name not in scalar_result_fn:
+            src += indent * 2 +     f"for( size_t i = 0; i < {no_of_args}; i++ ) " + "{\n"
+            src += indent * 3 +         "ASR::ttype_t* type = ASRUtils::expr_type(args[i]);\n"
+            src += indent * 3 +         "if (ASRUtils::is_array(type)) {\n"
+            src += indent * 4 +             "ASR::dimension_t* m_dims = nullptr;\n"
+            src += indent * 4 +             "size_t n_dims = ASRUtils::extract_dimensions_from_ttype(type, m_dims);\n"
+            src += indent * 4 +             "return_type = ASRUtils::make_Array_t_util(al, type->base.loc, "
+            src +=                              "return_type, m_dims, n_dims, ASR::abiType::Source, false, "
+            src +=                              "ASR::array_physical_typeType::DescriptorArray);\n"
+            src += indent * 4 +             "break;\n"
+            src += indent * 3 +         "}\n"
+            src += indent * 2 +     "}\n"
 
         src += indent * 2 + "if (all_args_evaluated(m_args)) {\n"
         src += indent * 3 +     f"Vec<ASR::expr_t*> args_values; args_values.reserve(al, {no_of_args});\n"
