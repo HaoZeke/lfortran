@@ -9372,5 +9372,49 @@ end module
     }
 #endif
 }
+
+// The 10-point tail of a 21-point Kronrod rule is an 8-wide abs reduction
+// next to indirect integrand calls. On AVX-512 the SLP vectorizer builds
+// that reduction with <8 x double>, and one zmm op slows the scalar calls
+// around it. gfortran keeps the sum in 256-bit vectors.
+TEST_CASE("Kronrod tail does not use 512-bit vectors") {
+#if LLVM_VERSION_MAJOR >= 11
+    std::ifstream in(std::string(LFORTRAN_PROJECT_SOURCE_DIR)
+        + "/src/lfortran/tests/dqk21_width.f");
+    REQUIRE(in.good());
+    std::stringstream buffer;
+    buffer << in.rdbuf();
+    std::string source = buffer.str();
+    CompilerOptions co;
+    co.po.runtime_library_dir = LFORTRAN_BUILD_RUNTIME_DIR;
+    co.platform = LCompilers::get_platform();
+    co.po.fast = true;
+    co.po.bounds_checking = false;
+    co.po.strict_bounds_checking = false;
+    co.fixed_form = true;
+    co.implicit_interface = true;
+    co.mcpu = "icelake-client";
+    LCompilers::FortranEvaluator e(co);
+    LCompilers::LocationManager lm;
+    LCompilers::LocationManager::FileLocations file;
+    file.in_filename = "dqk21_width.f";
+    lm.files.push_back(file);
+    lm.file_ends.push_back(LCompilers::LFortran::source_offset(source.size()));
+    LCompilers::diag::Diagnostics diagnostics;
+    LCompilers::PassManager lpm;
+    lpm.skip_llvm_backend_passes();
+    lpm.use_default_passes();
+    LCompilers::Result<std::unique_ptr<LCompilers::LLVMModule>> res
+        = e.get_llvm2(source, lm, lpm, diagnostics);
+    INFO(diagnostics.render2());
+    REQUIRE(res.ok);
+    std::string ir;
+    llvm::raw_string_ostream os(ir);
+    res.result->m_m->print(os, nullptr);
+    os.flush();
+    CHECK(ir.find("load <8 x double>") == std::string::npos);
+    CHECK(ir.find("llvm.fabs.v8f64") == std::string::npos);
+#endif
+}
 #endif
 #endif // __EMSCRIPTEN__

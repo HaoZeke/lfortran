@@ -662,6 +662,11 @@ void LLVMTargetConfig::apply_target_attributes(llvm::Module &module) const
         if (!features.empty()) {
             function.addFnAttr("target-features", features);
         }
+        // 512-bit vectors lower the core frequency on Intel AVX-512 CPUs.
+        // gfortran -march=native keeps the 21-point Kronrod sum in ymm.
+        if (features.find("+avx512f") != std::string::npos) {
+            function.addFnAttr("prefer-vector-width", "256");
+        }
         if (!tune_cpu.empty()) {
             function.addFnAttr("tune-cpu", tune_cpu);
         }
@@ -1331,6 +1336,210 @@ static void sink_call_to_its_users(llvm::Module &m, const char *name) {
     }
 }
 
+// An <8 x double> abs-reduction is legal on AVX-512 and the SLP vectorizer
+// emits it for the 10-point tail of dqk21. One zmm instruction drops the
+// core frequency, so the scalar integrand calls around it get slower.
+// gfortran -march=native keeps that sum in ymm. Split the 8-wide
+// operations into two 4-wide ones; nothing else uses the wide value, so
+// it is deleted and the backend sees ymm.
+static bool is_v8f64(llvm::Type *ty) {
+#if LLVM_VERSION_MAJOR >= 12
+    auto *vec = llvm::dyn_cast<llvm::FixedVectorType>(ty);
+#else
+    auto *vec = llvm::dyn_cast<llvm::VectorType>(ty);
+#endif
+    return vec && vec->getElementType()->isDoubleTy()
+        && vec->getNumElements() == 8;
+}
+
+static llvm::VectorType *v4f64(llvm::LLVMContext &ctx) {
+    return llvm::VectorType::get(llvm::Type::getDoubleTy(ctx), 4);
+}
+
+struct V8Halves {
+    llvm::Value *lo;
+    llvm::Value *hi;
+};
+
+static V8Halves halves_of(llvm::Value *v, llvm::IRBuilder<> &builder,
+        std::map<llvm::Value*, V8Halves> &known) {
+    auto found = known.find(v);
+    if (found != known.end()) {
+        return found->second;
+    }
+    if (auto *data = llvm::dyn_cast<llvm::ConstantDataVector>(v)) {
+        llvm::SmallVector<llvm::Constant*, 4> lo, hi;
+        for (unsigned i = 0; i < 4; i++) {
+            lo.push_back(data->getElementAsConstant(i));
+            hi.push_back(data->getElementAsConstant(i + 4));
+        }
+        V8Halves h{llvm::ConstantVector::get(lo), llvm::ConstantVector::get(hi)};
+        known[v] = h;
+        return h;
+    }
+    llvm::report_fatal_error("cannot split an <8 x double> value");
+}
+
+static llvm::Value *broadcast4(llvm::IRBuilder<> &builder, llvm::Value *scalar) {
+    llvm::VectorType *v4 = v4f64(scalar->getContext());
+    llvm::Value *one = builder.CreateInsertElement(
+        llvm::UndefValue::get(v4), scalar, builder.getInt64(0));
+    return builder.CreateShuffleVector(one, llvm::UndefValue::get(v4),
+        llvm::SmallVector<int, 4>{0, 0, 0, 0});
+}
+
+static void narrow_8wide_doubles(llvm::Function &fn) {
+    std::map<llvm::Value*, V8Halves> known;
+    llvm::SmallVector<llvm::Instruction*, 16> kill;
+    for (llvm::BasicBlock &bb : fn) {
+        for (llvm::Instruction &inst : bb) {
+            llvm::IRBuilder<> builder(&inst);
+            if (auto *load = llvm::dyn_cast<llvm::LoadInst>(&inst)) {
+                if (!is_v8f64(load->getType())) {
+                    continue;
+                }
+                auto *cast = llvm::dyn_cast<llvm::BitCastInst>(
+                    load->getPointerOperand());
+                if (cast == nullptr) {
+                    continue;
+                }
+                llvm::Value *base = cast->getOperand(0);
+                llvm::Type *v4p = v4f64(fn.getContext())->getPointerTo();
+                // The 8-wide load was only 16-byte aligned. A <4 x double>
+                // load assumes 32-byte alignment and faults otherwise.
+                auto *lo = llvm::cast<llvm::LoadInst>(builder.CreateLoad(
+                    builder.CreateBitCast(base, v4p)));
+                llvm::Value *hi_ptr = builder.CreateInBoundsGEP(base,
+                    builder.getInt64(4));
+                auto *hi = llvm::cast<llvm::LoadInst>(builder.CreateLoad(
+                    builder.CreateBitCast(hi_ptr, v4p)));
+                lo->setAlignment(llvm::Align(8));
+                hi->setAlignment(llvm::Align(8));
+                known[load] = {lo, hi};
+                kill.push_back(load);
+                continue;
+            }
+            if (auto *shuffle = llvm::dyn_cast<llvm::ShuffleVectorInst>(&inst)) {
+                if (!is_v8f64(shuffle->getType())) {
+                    continue;
+                }
+                llvm::SmallVector<int, 8> mask;
+                shuffle->getShuffleMask(mask);
+                bool broadcast = true;
+                for (int lane : mask) {
+                    if (lane != 0) {
+                        broadcast = false;
+                        break;
+                    }
+                }
+                auto *inserted = llvm::dyn_cast<llvm::InsertElementInst>(
+                    shuffle->getOperand(0));
+                if (!broadcast || inserted == nullptr
+                        || !llvm::isa<llvm::UndefValue>(inserted->getOperand(0))) {
+                    continue;
+                }
+                llvm::Value *splat = broadcast4(builder, inserted->getOperand(1));
+                known[shuffle] = {splat, splat};
+                kill.push_back(inserted);
+                kill.push_back(shuffle);
+                continue;
+            }
+            if (auto *bin = llvm::dyn_cast<llvm::BinaryOperator>(&inst)) {
+                if (!is_v8f64(bin->getType())) {
+                    continue;
+                }
+                builder.setFastMathFlags(bin->getFastMathFlags());
+                V8Halves x = halves_of(bin->getOperand(0), builder, known);
+                V8Halves y = halves_of(bin->getOperand(1), builder, known);
+                llvm::Value *lo = builder.CreateBinOp(bin->getOpcode(), x.lo, y.lo);
+                llvm::Value *hi = builder.CreateBinOp(bin->getOpcode(), x.hi, y.hi);
+                known[bin] = {lo, hi};
+                kill.push_back(bin);
+                continue;
+            }
+            auto *call = llvm::dyn_cast<llvm::CallInst>(&inst);
+            if (call == nullptr) {
+                continue;
+            }
+            llvm::Function *callee = call->getCalledFunction();
+            if (callee == nullptr) {
+                continue;
+            }
+            llvm::StringRef name = callee->getName();
+            if (name.startswith("llvm.fabs.v8f64")) {
+                V8Halves arg = halves_of(call->getArgOperand(0), builder, known);
+                llvm::Function *fabs4 = llvm::Intrinsic::getDeclaration(
+                    fn.getParent(), llvm::Intrinsic::fabs,
+                    {v4f64(fn.getContext())});
+                builder.setFastMathFlags(call->getFastMathFlags());
+                known[call] = {
+                    builder.CreateCall(fabs4, {arg.lo}),
+                    builder.CreateCall(fabs4, {arg.hi})
+                };
+                kill.push_back(call);
+                continue;
+            }
+            if (!name.startswith("llvm.experimental.vector.reduce")
+                    || call->getNumArgOperands() < 2
+                    || !is_v8f64(call->getArgOperand(1)->getType())) {
+                continue;
+            }
+            V8Halves arg = halves_of(call->getArgOperand(1), builder, known);
+            builder.setFastMathFlags(call->getFastMathFlags());
+            llvm::Value *sum = call->getArgOperand(0);
+            for (llvm::Value *half : {arg.lo, arg.hi}) {
+                for (unsigned lane = 0; lane < 4; lane++) {
+                    sum = builder.CreateFAdd(sum,
+                        builder.CreateExtractElement(half, lane));
+                }
+            }
+            call->replaceAllUsesWith(sum);
+            kill.push_back(call);
+        }
+    }
+    // Users are later in the block than their operands, so the reverse
+    // order drops each wide instruction after its users are gone.
+    for (llvm::Instruction *inst : llvm::reverse(kill)) {
+        if (inst->use_empty()) {
+            inst->eraseFromParent();
+        }
+    }
+}
+
+static bool calls_indirectly(const llvm::Function &fn) {
+    for (const llvm::BasicBlock &bb : fn) {
+        for (const llvm::Instruction &inst : bb) {
+            auto *call = llvm::dyn_cast<llvm::CallInst>(&inst);
+            if (call != nullptr && !call->isInlineAsm()
+                    && call->getCalledFunction() == nullptr) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+static void narrow_8wide_doubles(llvm::Module &m) {
+    for (llvm::Function &fn : m) {
+        // A pure vector kernel wants the 512-bit width. The slow case is a
+        // short widened reduction next to indirect scalar calls, as in
+        // dqk21: the zmm op drops the frequency for those calls too.
+        if (!fn.empty() && calls_indirectly(fn)) {
+            narrow_8wide_doubles(fn);
+        }
+    }
+    std::vector<llvm::Function *> unused;
+    for (llvm::Function &fn : m) {
+        if (fn.isDeclaration() && fn.use_empty()
+                && fn.getName().find("v8f64") != llvm::StringRef::npos) {
+            unused.push_back(&fn);
+        }
+    }
+    for (llvm::Function *fn : unused) {
+        fn->eraseFromParent();
+    }
+}
+
 static void lower_vector_exp_to_libmvec(llvm::Module &m) {
     llvm::Triple triple(m.getTargetTriple());
     if (!triple.isX86() || triple.isArch32Bit()) {
@@ -1798,6 +2007,7 @@ void LLVMEvaluator::opt(llvm::Module &m) {
     // calls scalar exp once per lane. glibc libmvec has the widened entry
     // points; use those instead.
     lower_vector_exp_to_libmvec(m);
+    narrow_8wide_doubles(m);
     // String temporaries for an untaken STOP/WRITE are allocated on entry
     // and freed on the way out, with no other use. malloc_alloc is not a
     // recognized malloc, so the pair survives -O3. d1mach pays for that on
