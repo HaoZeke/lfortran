@@ -3365,8 +3365,42 @@ void process_overloaded_assignment_function(ASR::symbol_t* proc, ASR::expr_t* ta
             std::string subrout_name = to_lower(subrout->m_name);
             ASR::symbol_t* resolved = curr_scope->resolve_symbol(subrout_name);
             ASR::symbol_t *a_name = nullptr;
-            if (specific != nullptr) {
+            auto symtab_is_ancestor = [](SymbolTable* ancestor, SymbolTable* scope) {
+                for (SymbolTable* s = scope; s != nullptr; s = s->parent) {
+                    if (ancestor != nullptr &&
+                            s->get_counter() == ancestor->get_counter()) {
+                        return true;
+                    }
+                }
+                return false;
+            };
+            if (specific != nullptr && symtab_is_ancestor(
+                    ASRUtils::symbol_parent_symtab(specific), curr_scope)) {
                 a_name = specific;
+                matched_subrout_name = ASRUtils::symbol_name(a_name);
+            } else if (specific != nullptr) {
+                // The specific lives in another module. Naming it directly
+                // stores that module's symbol table in this module file, and
+                // loading the file (a submodule of this module, for example)
+                // then fails because that table was never written here.
+                ASR::symbol_t* target_proc = ASRUtils::symbol_get_past_external(specific);
+                std::string original = ASRUtils::symbol_name(target_proc);
+                std::string local_name = to_lower(original) + "@~assign";
+                std::string taken_local = local_name;
+                a_name = curr_scope->get_symbol(local_name);
+                for (int n = 1; a_name != nullptr &&
+                        ASRUtils::symbol_get_past_external(a_name) != target_proc; n++) {
+                    local_name = taken_local + std::to_string(n);
+                    a_name = curr_scope->get_symbol(local_name);
+                }
+                if (a_name == nullptr) {
+                    ASR::symbol_t* owner = ASRUtils::get_asr_owner(target_proc);
+                    a_name = ASR::down_cast<ASR::symbol_t>(ASR::make_ExternalSymbol_t(
+                        al, loc, curr_scope, s2c(al, local_name), target_proc,
+                        ASRUtils::symbol_name(owner), nullptr, 0,
+                        s2c(al, original), ASR::accessType::Public));
+                    curr_scope->add_symbol(local_name, a_name);
+                }
                 matched_subrout_name = ASRUtils::symbol_name(a_name);
             } else if( resolved && ASRUtils::symbol_get_past_external(resolved) == proc ) {
                 matched_subrout_name = subrout_name;
