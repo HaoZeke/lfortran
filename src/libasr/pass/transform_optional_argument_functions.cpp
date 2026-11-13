@@ -207,17 +207,18 @@ class TransformFunctionsWithOptionalArguments: public PassUtils::PassVisitor<Tra
                 // already follows the standard and has no presence argument.
                 // A presence argument would sit where the caller put the
                 // next argument.
-                // An array or pointer optional still gets a presence
-                // argument. Forwarding an optional array to a pointer dummy
-                // builds a pointer temporary from that argument, and the
-                // dummy is itself a pointer. A scalar optional is a null
-                // pointer and has no extra argument.
+                // A pointer dummy, and an optional with the target attribute
+                // that is forwarded to one, still get a presence argument:
+                // the pass builds a pointer temporary from that argument.
+                // Other optionals are a null pointer and have no extra
+                // argument. An elemental optional array is one of those, and
+                // a presence argument breaks its broadcast.
                 bool keep_presence = false;
                 if (ASR::is_a<ASR::Variable_t>(*arg_sym)) {
-                    ASR::ttype_t *arg_type = ASR::down_cast<ASR::Variable_t>(
-                        arg_sym)->m_type;
-                    keep_presence = ASRUtils::is_pointer(arg_type)
-                        || ASRUtils::is_array(arg_type);
+                    ASR::Variable_t *arg_var = ASR::down_cast<ASR::Variable_t>(
+                        arg_sym);
+                    keep_presence = ASRUtils::is_pointer(arg_var->m_type)
+                        || arg_var->m_target_attr;
                 }
                 if( is_presence_optional(arg_sym, false) && !keep_presence ) {
                     continue;
