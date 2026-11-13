@@ -2328,6 +2328,52 @@ inline bool is_array(ASR::ttype_t *x) {
     return extract_dimensions_from_ttype(x, dims) > 0 || is_assumed_rank_array(x);
 }
 
+// GFortran passes a scalar character function result, then its hidden
+// length, ahead of the explicit arguments. ASR keeps the result as the
+// last explicit argument and its length with the other hidden lengths.
+// The returned order is the LLVM argument order of `fn`'s ASR arguments.
+inline std::vector<size_t> gfortran_character_result_arg_order(
+        const ASR::Function_t &fn) {
+    std::vector<size_t> order(fn.n_args);
+    for (size_t i = 0; i < fn.n_args; i++) order[i] = i;
+    size_t result = fn.n_args;
+    std::string result_name;
+    for (size_t i = 0; i < fn.n_args; i++) {
+        if (!ASR::is_a<ASR::Var_t>(*fn.m_args[i])) continue;
+        ASR::symbol_t *sym = symbol_get_past_external(
+            ASR::down_cast<ASR::Var_t>(fn.m_args[i])->m_v);
+        if (sym == nullptr || !ASR::is_a<ASR::Variable_t>(*sym)) continue;
+        ASR::Variable_t *v = ASR::down_cast<ASR::Variable_t>(sym);
+        if (v->m_storage == ASR::storage_typeType::ResultArgument
+                && is_character(*v->m_type) && !is_array(v->m_type)) {
+            result = i;
+            result_name = v->m_name;
+            break;
+        }
+    }
+    if (result == fn.n_args) return order;
+    size_t length = fn.n_args;
+    const std::string length_name = "__libasr_len_" + result_name;
+    for (size_t i = 0; i < fn.n_args; i++) {
+        if (!ASR::is_a<ASR::Var_t>(*fn.m_args[i])) continue;
+        ASR::symbol_t *sym = symbol_get_past_external(
+            ASR::down_cast<ASR::Var_t>(fn.m_args[i])->m_v);
+        if (sym == nullptr || !ASR::is_a<ASR::Variable_t>(*sym)) continue;
+        if (std::string(ASR::down_cast<ASR::Variable_t>(sym)->m_name)
+                == length_name) {
+            length = i;
+            break;
+        }
+    }
+    order.clear();
+    order.push_back(result);
+    if (length != fn.n_args) order.push_back(length);
+    for (size_t i = 0; i < fn.n_args; i++) {
+        if (i != result && i != length) order.push_back(i);
+    }
+    return order;
+}
+
 class ExprDependentOnlyOnArguments: public ASR::BaseWalkVisitor<ExprDependentOnlyOnArguments> {
 
     public:

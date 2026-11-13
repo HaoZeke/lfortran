@@ -11461,6 +11461,9 @@ public:
         size_t asr_arg_idx = 0;
         auto arg_it = F.arg_begin();
         const bool noalias_dummies = dummies_may_be_noalias(x);
+        const std::vector<size_t> arg_order =
+            ASRUtils::gfortran_character_result_arg_order(x);
+        size_t abi_idx = 0;
 
         // Windows complex(kind=8) uses "pass-as-subroutine" (sret-style) ABI:
         // the LLVM function has an extra hidden first argument to store the
@@ -11478,6 +11481,10 @@ public:
         }
 
         for (; arg_it != F.arg_end(); ++arg_it) {
+            if (abi_idx < arg_order.size()) {
+                asr_arg_idx = arg_order[abi_idx];
+            }
+            abi_idx++;
             LCOMPILERS_ASSERT(asr_arg_idx < x.n_args);
             llvm::Argument &llvm_arg = *arg_it;
             ASR::symbol_t *s = symbol_get_past_external(
@@ -28528,6 +28535,33 @@ public:
             }
 
             args.push_back(tmp);
+        }
+        if (!skip_self) {
+            ASR::symbol_t *callee = symbol_get_past_external(x.m_name);
+            ASR::Function_t *abi_fn = nullptr;
+            if (callee != nullptr && ASR::is_a<ASR::Function_t>(*callee)) {
+                abi_fn = ASR::down_cast<ASR::Function_t>(callee);
+            } else if (callee != nullptr && ASR::is_a<ASR::Variable_t>(*callee)
+                    && ASR::down_cast<ASR::Variable_t>(callee)->m_type_declaration
+                        != nullptr) {
+                ASR::symbol_t *decl = ASRUtils::symbol_get_past_external(
+                    ASR::down_cast<ASR::Variable_t>(callee)->m_type_declaration);
+                if (decl != nullptr && ASR::is_a<ASR::Function_t>(*decl)) {
+                    abi_fn = ASR::down_cast<ASR::Function_t>(decl);
+                }
+            }
+            if (abi_fn != nullptr) {
+                std::vector<size_t> order =
+                    ASRUtils::gfortran_character_result_arg_order(*abi_fn);
+                if (order.size() == args.size()) {
+                    std::vector<llvm::Value*> permuted;
+                    permuted.reserve(order.size());
+                    for (size_t index : order) {
+                        permuted.push_back(args[index]);
+                    }
+                    args.swap(permuted);
+                }
+            }
         }
         convert_call_args_depth--;
         return args;

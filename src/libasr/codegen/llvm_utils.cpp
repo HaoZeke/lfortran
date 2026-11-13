@@ -1479,6 +1479,15 @@ namespace LCompilers {
                 throw CodeGenError("Argument type not implemented");
             }
         }
+        std::vector<size_t> order = ASRUtils::gfortran_character_result_arg_order(x);
+        if (order.size() == args.size()) {
+            std::vector<llvm::Type*> permuted;
+            permuted.reserve(order.size());
+            for (size_t index : order) {
+                permuted.push_back(args[index]);
+            }
+            return permuted;
+        }
         return args;
     }
 
