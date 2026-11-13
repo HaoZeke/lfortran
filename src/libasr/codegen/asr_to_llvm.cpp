@@ -1195,17 +1195,56 @@ public:
         }
     }
 
+    // An indirect call (a procedure argument, such as an integrand) is not
+    // inlined. Fully unrolling a short loop of those calls duplicates the
+    // call and the spills around it. GCC -O3 leaves that loop rolled.
+    bool loop_has_indirect_call(llvm::BasicBlock* header, llvm::BasicBlock* exit_bb) {
+        std::vector<llvm::BasicBlock*> work;
+        std::set<llvm::BasicBlock*> seen;
+        work.push_back(header);
+        while (!work.empty()) {
+            llvm::BasicBlock* bb = work.back();
+            work.pop_back();
+            if (bb == nullptr || bb == exit_bb || !seen.insert(bb).second) {
+                continue;
+            }
+            for (llvm::Instruction& inst : *bb) {
+                auto* call = llvm::dyn_cast<llvm::CallInst>(&inst);
+                if (call != nullptr && !call->isInlineAsm()
+                        && call->getCalledFunction() == nullptr) {
+                    return true;
+                }
+            }
+            llvm::Instruction* term = bb->getTerminator();
+            if (term == nullptr) {
+                continue;
+            }
+            for (unsigned i = 0; i < term->getNumSuccessors(); i++) {
+                work.push_back(term->getSuccessor(i));
+            }
+        }
+        return false;
+    }
+
     // Under --fast, LLVM would runtime-unroll loops whose trip count is unknown.
     // Fortran array-operation loops are often short (e.g. a 3x3 window), and the
     // unrolled body with its remainder checks then only adds overhead and
     // register pressure. Like GCC at -O3 (without -funroll-loops), keep them
     // rolled; vectorization and full unrolling of known trip counts still apply.
-    void disable_runtime_unrolling(llvm::BranchInst* latch) {
-        if (!compiler_options.po.fast) {
+    // A loop that calls through a procedure argument is not fully unrolled either:
+    // the call stays one site, as in gfortran -O3.
+    void disable_runtime_unrolling(llvm::BranchInst* latch,
+            llvm::BasicBlock* header, llvm::BasicBlock* exit_bb) {
+        if (!compiler_options.po.fast || latch == nullptr) {
             return;
         }
+        bool block_unroll = header != nullptr
+            && loop_has_indirect_call(header, exit_bb);
+        const char* kind = block_unroll
+            ? "llvm.loop.unroll.disable"
+            : "llvm.loop.unroll.runtime.disable";
         llvm::Metadata* disable = llvm::MDNode::get(context,
-            llvm::MDString::get(context, "llvm.loop.unroll.runtime.disable"));
+            llvm::MDString::get(context, kind));
         llvm::MDNode* loop_id = llvm::MDNode::getDistinct(context, {nullptr, disable});
         loop_id->replaceOperandWith(0, loop_id);
         latch->setMetadata(llvm::LLVMContext::MD_loop, loop_id);
@@ -1261,7 +1300,7 @@ public:
         start_new_block(loopbody); {
             loop_body();
             llvm::BranchInst* latch = builder->CreateBr(loophead);
-            disable_runtime_unrolling(latch);
+            disable_runtime_unrolling(latch, loophead, loopend);
         }
 
         // end
@@ -19034,7 +19073,8 @@ public:
                 llvm::ConstantInt::get(iv_type, 1)), latch);
         }
         disable_runtime_unrolling(
-            builder->CreateCondBr(last, orelse_bb, body_bb));
+            builder->CreateCondBr(last, orelse_bb, body_bb),
+            body_bb, orelse_bb);
 
         if (n_orelse > 0) {
             start_new_block(orelse_bb);
