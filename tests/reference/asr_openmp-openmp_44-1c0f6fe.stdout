@@ -13,7 +13,7 @@
                                 (ExternalSymbol
                                     8
                                     c_bool
-                                    45 c_bool
+                                    46 c_bool
                                     lfortran_intrinsic_iso_c_binding
                                     []
                                     c_bool
@@ -23,7 +23,7 @@
                                 (ExternalSymbol
                                     8
                                     c_funptr
-                                    45 c_funptr
+                                    46 c_funptr
                                     lfortran_intrinsic_iso_c_binding
                                     []
                                     c_funptr
@@ -33,7 +33,7 @@
                                 (ExternalSymbol
                                     8
                                     c_int
-                                    45 c_int
+                                    46 c_int
                                     lfortran_intrinsic_iso_c_binding
                                     []
                                     c_int
@@ -43,7 +43,7 @@
                                 (ExternalSymbol
                                     8
                                     c_long
-                                    45 c_long
+                                    46 c_long
                                     lfortran_intrinsic_iso_c_binding
                                     []
                                     c_long
@@ -53,7 +53,7 @@
                                 (ExternalSymbol
                                     8
                                     c_ptr
-                                    45 c_ptr
+                                    46 c_ptr
                                     lfortran_intrinsic_iso_c_binding
                                     []
                                     c_ptr
@@ -3272,14 +3272,71 @@
                                     .false.
                                     ()
                                 ),
-                            omp_set_num_threads:
+                            omp_set_dynamic:
                                 (Function
                                     (SymbolTable
                                         43
                                         {
-                                            n:
+                                            dynamic_threads:
                                                 (Variable
                                                     43
+                                                    dynamic_threads
+                                                    []
+                                                    Unspecified
+                                                    ()
+                                                    ()
+                                                    Default
+                                                    (Logical 4)
+                                                    ()
+                                                    BindC
+                                                    Public
+                                                    Required
+                                                    .true.
+                                                    .false.
+                                                    .false.
+                                                    ()
+                                                    .false.
+                                                    .false.
+                                                    .false.
+                                                    NotMethod
+                                                    ()
+                                                    []
+                                                    ()
+                                                )
+                                        })
+                                    omp_set_dynamic
+                                    (FunctionType
+                                        [(Logical 4)]
+                                        ()
+                                        BindC
+                                        Interface
+                                        "omp_set_dynamic"
+                                        .false.
+                                        .false.
+                                        .false.
+                                        .false.
+                                        .false.
+                                        []
+                                        .false.
+                                        Host
+                                    )
+                                    []
+                                    [(Var 43 dynamic_threads)]
+                                    []
+                                    ()
+                                    Public
+                                    .false.
+                                    .false.
+                                    ()
+                                ),
+                            omp_set_num_threads:
+                                (Function
+                                    (SymbolTable
+                                        44
+                                        {
+                                            n:
+                                                (Variable
+                                                    44
                                                     n
                                                     []
                                                     Unspecified
@@ -3321,7 +3378,7 @@
                                         Host
                                     )
                                     []
-                                    [(Var 43 n)]
+                                    [(Var 44 n)]
                                     []
                                     ()
                                     Public
@@ -3348,7 +3405,7 @@
                                 (ExternalSymbol
                                     6
                                     c_bool
-                                    45 c_bool
+                                    46 c_bool
                                     lfortran_intrinsic_iso_c_binding
                                     []
                                     c_bool
@@ -3358,7 +3415,7 @@
                                 (ExternalSymbol
                                     6
                                     c_funptr
-                                    45 c_funptr
+                                    46 c_funptr
                                     lfortran_intrinsic_iso_c_binding
                                     []
                                     c_funptr
@@ -3368,7 +3425,7 @@
                                 (ExternalSymbol
                                     6
                                     c_int
-                                    45 c_int
+                                    46 c_int
                                     lfortran_intrinsic_iso_c_binding
                                     []
                                     c_int
@@ -3378,7 +3435,7 @@
                                 (ExternalSymbol
                                     6
                                     c_long
-                                    45 c_long
+                                    46 c_long
                                     lfortran_intrinsic_iso_c_binding
                                     []
                                     c_long
@@ -3388,7 +3445,7 @@
                                 (ExternalSymbol
                                     6
                                     c_ptr
-                                    45 c_ptr
+                                    46 c_ptr
                                     lfortran_intrinsic_iso_c_binding
                                     []
                                     c_ptr
@@ -3762,6 +3819,16 @@
                                     omp_lib
                                     []
                                     omp_get_wtime
+                                    Public
+                                ),
+                            omp_set_dynamic:
+                                (ExternalSymbol
+                                    6
+                                    omp_set_dynamic
+                                    8 omp_set_dynamic
+                                    omp_lib
+                                    []
+                                    omp_set_dynamic
                                     Public
                                 ),
                             omp_set_num_threads:
