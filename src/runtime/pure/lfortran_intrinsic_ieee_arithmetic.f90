@@ -62,7 +62,7 @@ module lfortran_intrinsic_ieee_arithmetic
     end interface
 
     interface ieee_is_nan
-        module procedure spieee_is_nan, dpieee_is_nan, qpieee_is_nan
+        module procedure spieee_is_nan, dpieee_is_nan, xpieee_is_nan, qpieee_is_nan
     end interface
 
     interface ieee_is_finite
@@ -1021,6 +1021,12 @@ module lfortran_intrinsic_ieee_arithmetic
         case default
             y = x
         end select
+    end function
+
+    elemental function xpieee_is_nan(x) result(r)
+        real(10), intent(in) :: x
+        logical :: r
+        r = x /= x
     end function
 
     elemental function qpieee_is_nan(x) result(r)
