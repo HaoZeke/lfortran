@@ -199,15 +199,15 @@ class TransformFunctionsWithOptionalArguments: public PassUtils::PassVisitor<Tra
                 ASR::symbol_t* arg_sym = ASR::down_cast<ASR::Var_t>(s->m_args[i])->m_v;
                 new_args.push_back(al, s->m_args[i]);
                 new_arg_types.push_back(al, ASRUtils::get_FunctionType(*s)->m_arg_types[i]);
-                // A character dummy passed as a data pointer has a hidden
-                // length. GFortran and f2py pass a null pointer when it is
-                // absent, and present() tests that pointer. An extra
-                // presence argument would sit where those callers put the
-                // next argument. A descriptor array keeps the presence
-                // argument, because it is not that pointer.
-                bool data_pointer_character = ASRUtils::is_string_dummy_with_hidden_length(
-                    *s, s->m_args[i]);
-                if( is_presence_optional(arg_sym, false) && data_pointer_character ) {
+                // An absent optional is a null pointer. f2py and GFortran pass
+                // that pointer and no extra logical, for a callback, an
+                // allocatable, a pointer, a VALUE dummy and an ordinary
+                // argument (including one f2py marks intent(c)). present(),
+                // allocated() and associated() test the pointer. bind(c)
+                // already follows the standard and has no presence argument.
+                // A presence argument would sit where the caller put the
+                // next argument.
+                if( is_presence_optional(arg_sym, false) ) {
                     continue;
                 }
                 if( is_presence_optional(arg_sym, true) ) {
