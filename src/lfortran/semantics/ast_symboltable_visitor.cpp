@@ -3752,6 +3752,14 @@ public:
                         throw SemanticAbort();
                     }
                     parent_scope->erase_symbol(sym_name);
+                } else if (ASRUtils::types_equal(f2->m_function_signature,
+                        func->m_function_signature,
+                        ASRUtils::get_expr_from_sym(al, f1),
+                        ASRUtils::get_expr_from_sym(al, func_sym))) {
+                    // A generated callback can emit the same contained
+                    // function twice. The second definition is the same
+                    // procedure, so it replaces the first.
+                    parent_scope->erase_symbol(sym_name);
                 } else {
                     diag.add(diag::Diagnostic(
                         "Function already defined",
