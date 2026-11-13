@@ -18431,6 +18431,29 @@ LFORTRAN_API void _lfortran_string_read_f32(char *str, int64_t len, char *format
     if (iostat) *iostat = 0;
 }
 
+LFORTRAN_API void _lfortran_string_read_f80(char *str, int64_t len, char *format, long double *f, int32_t *iostat, int64_t *offset) {
+    (void) format;
+    int64_t off = offset ? *offset : 0;
+    char *buf = to_c_string((const fchar*)(str + off), len - off);
+    normalize_numeric_input(buf, _lfortran_get_decimal_mode(-1));
+    char *start = buf;
+    while (*start == ' ' || *start == '\t') start++;
+    char *end = start;
+    long double v = strtold(start, &end);
+    int rc = end != start;
+    if (rc) {
+        *f = v;
+        if (offset) *offset = off + (int64_t)(end - buf);
+    }
+    internal_free(buf);
+    if (!rc) {
+        if (iostat) { *iostat = 5010; return; }
+        fprintf(stderr, "Error: Bad real for item in list input\n");
+        exit(1);
+    }
+    if (iostat) *iostat = 0;
+}
+
 LFORTRAN_API void _lfortran_string_read_f64(char *str, int64_t len, char *format, double *f, int32_t *iostat, int64_t *offset) {
     int64_t off = offset ? *offset : 0;
     char *buf = to_c_string((const fchar*)(str + off), len - off);
