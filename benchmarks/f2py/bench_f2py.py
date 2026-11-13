@@ -30,7 +30,11 @@ gfortran:
 
   -O2 -fPIC -std=legacy
   -O3 -fPIC -std=legacy
+  -O3 -march=native -fPIC -std=legacy
   -O3 -march=native -ffast-math -funroll-loops -fPIC -std=legacy
+
+Only the last of those, and LFortran --fast, turn fast math on.
+benchmarks/f2py/README.md names the ratio columns.
 """
 
 from __future__ import annotations
@@ -819,6 +823,9 @@ def main() -> None:
         ("lfortran-nofast", lf_nofast_flags),
         ("gfortran-O2", ["-O2", "-fPIC", "-std=legacy"]),
         ("gfortran-O3", ["-O3", "-fPIC", "-std=legacy"]),
+        ("gfortran-O3-march", [
+            "-O3", "-march=native", "-fPIC", "-std=legacy",
+        ]),
         ("gfortran-O3-native", [
             "-O3", "-march=native", "-ffast-math", "-funroll-loops",
             "-fPIC", "-std=legacy",
@@ -834,7 +841,8 @@ def main() -> None:
         "lfortran_nofast_flags": lf_nofast_flags,
         "gfortran_O2": compilers[2][1],
         "gfortran_O3": compilers[3][1],
-        "gfortran_O3_native": compilers[4][1],
+        "gfortran_O3_march": compilers[4][1],
+        "gfortran_O3_native": compilers[5][1],
         "repeats": REPEATS,
         "warmup": WARMUP,
         "cpu": "pinned to logical cpu 0, compilers interleaved each repeat",
@@ -931,6 +939,7 @@ def main() -> None:
         ("lfortran", "gfortran-O3-native", "ratio_lfortran_over_O3_native"),
         ("lfortran-nofast", "gfortran-O3", "ratio_nofast_over_O3"),
         ("lfortran-nofast", "gfortran-O3-native", "ratio_nofast_over_O3_native"),
+        ("lfortran-nofast", "gfortran-O3-march", "ratio_nofast_over_O3_march"),
     )
     for call, slot in results["workloads"].items():
         for left, right, key in ratio_pairs:
@@ -957,6 +966,7 @@ def main() -> None:
                 "lf_over_O3_native": slot.get("ratio_lfortran_over_O3_native"),
                 "nofast_over_O3": slot.get("ratio_nofast_over_O3"),
                 "nofast_over_O3_native": slot.get("ratio_nofast_over_O3_native"),
+                "nofast_over_march": slot.get("ratio_nofast_over_O3_march"),
             }
             for call, slot in results["workloads"].items()
         },
