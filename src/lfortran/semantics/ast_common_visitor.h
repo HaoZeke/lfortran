@@ -38,6 +38,25 @@ namespace LCompilers::LFortran {
 
 static int PDT_SENTINEL = 1000;
 
+// A substring bound keeps the wider of its kind and the default integer.
+// An integer(8) index past 2**31-1, the length f2py passes for a character
+// array longer than a default integer, must not be truncated before the
+// character is addressed.
+static inline int substring_bound_kind(int default_kind,
+        ASR::expr_t *left, ASR::expr_t *right, ASR::expr_t *step = nullptr) {
+    int kind = default_kind;
+    ASR::expr_t *bounds[3] = {left, right, step};
+    for (ASR::expr_t *bound : bounds) {
+        if (bound == nullptr) continue;
+        ASR::ttype_t *bound_type = ASRUtils::expr_type(bound);
+        if (bound_type != nullptr && ASRUtils::is_integer(*bound_type)) {
+            int bound_kind = ASRUtils::extract_kind_from_ttype_t(bound_type);
+            if (bound_kind > kind) kind = bound_kind;
+        }
+    }
+    return kind;
+}
+
 // Sets `abi_type` and `bindc_name` from the language-binding-spec of `x`;
 // `visitor` evaluates the NAME= constant expression.
 template <typename T, typename Visitor>
@@ -17505,29 +17524,34 @@ public:
                     is_legacy_assumed_size_element(v_Var, args.p, args.size())));
                 LCOMPILERS_ASSERT(n_subargs == 1);
 
-                ASR::ttype_t* int_type = ASRUtils::TYPE(ASR::make_Integer_t(al, loc, compiler_options.po.default_integer_kind));
-                ASR::expr_t* const_1 = ASRUtils::EXPR(ASR::make_IntegerConstant_t(al, loc,
-                                            1, int_type));
                 ASR::expr_t *l = nullptr, *r = nullptr, *step = nullptr;
                 if (m_subargs[0].m_start) {
                     this->visit_expr(*(m_subargs[0].m_start));
                     l = ASRUtils::EXPR(tmp);
-                    l = CastingUtil::perform_casting(l, int_type, al, loc);
-                } else {
-                    l = const_1;
                 }
                 if (m_subargs[0].m_end) {
                     this->visit_expr(*(m_subargs[0].m_end));
                     r = ASRUtils::EXPR(tmp);
-                    r = CastingUtil::perform_casting(r, int_type, al, loc);
-                } else {
-                    r = ASRUtils::EXPR(ASR::make_StringLen_t(
-                                al, loc, v_Var, 
-                                ASRUtils::TYPE(ASR::make_Integer_t(al, loc, compiler_options.po.default_integer_kind)),
-                                ASRUtils::get_string_type(root_v_type)->m_len));
                 }
                 this->visit_expr(*(m_subargs[0].m_step));
                 step = ASRUtils::EXPR(tmp);
+                ASR::ttype_t* int_type = ASRUtils::TYPE(ASR::make_Integer_t(
+                    al, loc, substring_bound_kind(
+                        compiler_options.po.default_integer_kind, l, r, step)));
+                if (l) {
+                    l = CastingUtil::perform_casting(l, int_type, al, loc);
+                } else {
+                    l = ASRUtils::EXPR(ASR::make_IntegerConstant_t(
+                        al, loc, 1, int_type));
+                }
+                if (r) {
+                    r = CastingUtil::perform_casting(r, int_type, al, loc);
+                } else {
+                    r = ASRUtils::EXPR(ASR::make_StringLen_t(
+                                al, loc, v_Var,
+                                int_type,
+                                ASRUtils::get_string_type(root_v_type)->m_len));
+                }
                 step = CastingUtil::perform_casting(step, int_type, al, loc);
 
                 ASR::ttype_t *string_tt;
@@ -17578,7 +17602,6 @@ public:
                 if (dims == 0) {
                     // this is the case of String Section (or slicing)
                     LCOMPILERS_ASSERT(n_args == 1);
-                    ASR::ttype_t* int_type = ASRUtils::TYPE(ASR::make_Integer_t(al, loc, compiler_options.po.default_integer_kind));
                     ASR::expr_t *l = nullptr, *r = nullptr;
 
                     if (m_args[0].m_start) {
@@ -17593,18 +17616,26 @@ public:
                             }
                         }
                         l = args[0].m_left;
-                        l = CastingUtil::perform_casting(l, int_type, al, loc);
-                    } else {
-                        l = ASRUtils::EXPR(ASR::make_IntegerConstant_t(al, loc, 1,
-                            ASRUtils::TYPE(ASR::make_Integer_t(al, loc, compiler_options.po.default_integer_kind))));
                     }
                     if (m_args[0].m_end) {
                         r = args[0].m_right;
+                    }
+                    ASR::ttype_t* int_type = ASRUtils::TYPE(ASR::make_Integer_t(
+                        al, loc, substring_bound_kind(
+                            compiler_options.po.default_integer_kind,
+                            l, r, args[0].m_step)));
+                    if (l) {
+                        l = CastingUtil::perform_casting(l, int_type, al, loc);
+                    } else {
+                        l = ASRUtils::EXPR(ASR::make_IntegerConstant_t(
+                            al, loc, 1, int_type));
+                    }
+                    if (r) {
                         r = CastingUtil::perform_casting(r, int_type, al, loc);
                     } else {
                         r = ASRUtils::EXPR(ASR::make_StringLen_t(
-                            al, loc, v_Var, 
-                            ASRUtils::TYPE(ASR::make_Integer_t(al, loc, compiler_options.po.default_integer_kind)),
+                            al, loc, v_Var,
+                            int_type,
                             ASRUtils::get_string_type(v_type)->m_len));
                     }
                     ASR::expr_t* casted_step = CastingUtil::perform_casting(args[0].m_step, int_type, al, loc);
@@ -17703,31 +17734,34 @@ public:
                         ASR::arraystorageType::ColMajor, nullptr));
 
                 // Process substring arguments
-                ASR::ttype_t* sub_int_type = ASRUtils::TYPE(ASR::make_Integer_t(
-                    al, loc, compiler_options.po.default_integer_kind));
-                ASR::expr_t* const_1 = ASRUtils::EXPR(
-                    ASR::make_IntegerConstant_t(al, loc, 1, sub_int_type));
                 ASR::expr_t *l = nullptr, *r = nullptr, *step = nullptr;
                 if (m_subargs[0].m_start) {
                     this->visit_expr(*(m_subargs[0].m_start));
                     l = ASRUtils::EXPR(tmp);
-                    l = CastingUtil::perform_casting(l, sub_int_type, al, loc);
-                } else {
-                    l = const_1;
                 }
                 if (m_subargs[0].m_end) {
                     this->visit_expr(*(m_subargs[0].m_end));
                     r = ASRUtils::EXPR(tmp);
+                }
+                this->visit_expr(*(m_subargs[0].m_step));
+                step = ASRUtils::EXPR(tmp);
+                ASR::ttype_t* sub_int_type = ASRUtils::TYPE(ASR::make_Integer_t(
+                    al, loc, substring_bound_kind(
+                        compiler_options.po.default_integer_kind, l, r, step)));
+                if (l) {
+                    l = CastingUtil::perform_casting(l, sub_int_type, al, loc);
+                } else {
+                    l = ASRUtils::EXPR(ASR::make_IntegerConstant_t(
+                        al, loc, 1, sub_int_type));
+                }
+                if (r) {
                     r = CastingUtil::perform_casting(r, sub_int_type, al, loc);
                 } else {
                     r = ASRUtils::EXPR(ASR::make_StringLen_t(
                         al, loc, v_Var,
-                        ASRUtils::TYPE(ASR::make_Integer_t(al, loc,
-                            compiler_options.po.default_integer_kind)),
+                        sub_int_type,
                         ASRUtils::get_string_type(root_v_type)->m_len));
                 }
-                this->visit_expr(*(m_subargs[0].m_step));
-                step = ASRUtils::EXPR(tmp);
                 step = CastingUtil::perform_casting(
                     step, sub_int_type, al, loc);
 
@@ -28967,8 +29001,6 @@ public:
             ASR::make_StringConstant_t(al, loc, x.m_s, str_type));
 
         LCOMPILERS_ASSERT(x.n_args == 1);
-        ASR::ttype_t *int_type = ASRUtils::TYPE(
-            ASR::make_Integer_t(al, loc, compiler_options.po.default_integer_kind));
 
         bool is_item = true;
         ASR::expr_t *l = nullptr, *r = nullptr, *step = nullptr;
@@ -28976,22 +29008,31 @@ public:
         if (x.m_args[0].m_start != nullptr) {
             this->visit_expr(*(x.m_args[0].m_start));
             l = ASRUtils::EXPR(tmp);
-            l = CastingUtil::perform_casting(l, int_type, al, loc);
         }
         if (x.m_args[0].m_end != nullptr) {
             this->visit_expr(*(x.m_args[0].m_end));
             r = ASRUtils::EXPR(tmp);
-            r = CastingUtil::perform_casting(r, int_type, al, loc);
         } else {
             if (l != nullptr) is_item = false;
         }
         if (x.m_args[0].m_step != nullptr) {
             this->visit_expr(*(x.m_args[0].m_step));
             step = ASRUtils::EXPR(tmp);
-            step = CastingUtil::perform_casting(step, int_type, al, loc);
             is_item = false;
         } else {
             if (l != nullptr && r != nullptr) is_item = false;
+        }
+        ASR::ttype_t *int_type = ASRUtils::TYPE(ASR::make_Integer_t(
+            al, loc, substring_bound_kind(
+                compiler_options.po.default_integer_kind, l, r, step)));
+        if (l != nullptr) {
+            l = CastingUtil::perform_casting(l, int_type, al, loc);
+        }
+        if (r != nullptr) {
+            r = CastingUtil::perform_casting(r, int_type, al, loc);
+        }
+        if (step != nullptr) {
+            step = CastingUtil::perform_casting(step, int_type, al, loc);
         }
 
         if (is_item) {
