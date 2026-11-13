@@ -10204,6 +10204,40 @@ public:
                         }
                         if (eq->m_args[i].n_set_list >= 2) {
                           size_t n_set = eq->m_args[i].n_set_list;
+                          // Fortran: a variable equivalenced with a SAVE
+                          // variable is SAVE. The backing array has to live
+                          // as long as the saved alias, or a later call sees
+                          // a fresh stack temporary (the D1MACH overlay).
+                          {
+                            std::vector<ASR::Variable_t*> members;
+                            bool any_save = false;
+                            for (size_t k = 0; k < n_set; k++) {
+                                this->visit_expr(*eq->m_args[i].m_set_list[k]);
+                                ASR::expr_t* e = ASRUtils::EXPR(tmp);
+                                ASR::expr_t* base = e;
+                                if (ASR::is_a<ASR::ArrayItem_t>(*e)) {
+                                    base = ASR::down_cast<ASR::ArrayItem_t>(e)->m_v;
+                                }
+                                if (!ASR::is_a<ASR::Var_t>(*base)) {
+                                    continue;
+                                }
+                                ASR::Variable_t* var = ASR::down_cast<ASR::Variable_t>(
+                                    ASR::down_cast<ASR::Var_t>(base)->m_v);
+                                members.push_back(var);
+                                if (var->m_storage == ASR::storage_typeType::Save) {
+                                    any_save = true;
+                                }
+                            }
+                            if (any_save) {
+                                for (ASR::Variable_t* var : members) {
+                                    if (var->m_intent == ASR::intentType::Local
+                                            && var->m_storage
+                                                != ASR::storage_typeType::Parameter) {
+                                        var->m_storage = ASR::storage_typeType::Save;
+                                    }
+                                }
+                            }
+                          }
                           AST::expr_t *anchor = eq->m_args[i].m_set_list[n_set - 1];
                           this->visit_expr(*anchor);
                           ASR::expr_t* asr_anchor = ASRUtils::EXPR(tmp);
