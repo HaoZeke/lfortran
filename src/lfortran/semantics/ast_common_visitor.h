@@ -25112,6 +25112,12 @@ public:
                     && ASR::is_a<ASR::Real_t>(*dummy_elem)) {
                 return true;
             }
+            // The complex id_dist routines keep an integer index in the
+            // same complex workspace.
+            if (ASR::is_a<ASR::Complex_t>(*actual_elem)
+                    && ASR::is_a<ASR::Integer_t>(*dummy_elem)) {
+                return true;
+            }
         }
         return false;
     }
