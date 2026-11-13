@@ -5107,18 +5107,58 @@ public:
                     ? arg_ptr->getType()->getPointerElementType() : nullptr;
                 bool data_pointer_in_descriptor = pointee == llvm_utils->string_descriptor
                     || (pointee && arr_descr->is_array_descriptor_type(pointee));
-                if (data_pointer_in_descriptor) {
-                    llvm::StructType* desc = llvm::cast<llvm::StructType>(pointee);
-                    llvm::Type* field_type = desc->getElementType(0);
-                    llvm::Value* field = llvm_utils->create_gep2(pointee, arg_ptr, 0);
+                auto null_pointer = [](llvm::Type* ptr_ty) {
+                    return llvm::ConstantPointerNull::get(
+                        llvm::cast<llvm::PointerType>(ptr_ty));
+                };
+                auto descriptor_data_present = [&](llvm::Type* desc_ty,
+                        llvm::Value* desc) {
+                    llvm::StructType* desc_struct = llvm::cast<llvm::StructType>(desc_ty);
+                    llvm::Type* field_type = desc_struct->getElementType(0);
+                    llvm::Value* field = llvm_utils->create_gep2(desc_ty, desc, 0);
                     llvm::Value* loaded = llvm_utils->CreateLoad2(field_type, field);
-                    tmp = builder->CreateICmpNE(loaded,
-                        llvm::ConstantPointerNull::get(
-                            llvm::cast<llvm::PointerType>(field_type)));
+                    return builder->CreateICmpNE(loaded, null_pointer(field_type));
+                };
+                // A host-associated optional array is a pointer to the
+                // descriptor pointer. The slot itself is always allocated.
+                // The descriptor's data pointer is null when the array is
+                // absent.
+                if (pointee && pointee->isPointerTy() &&
+                        arr_descr->is_array_descriptor_type(
+                            pointee->getPointerElementType())) {
+                    llvm::Type* desc_ty = pointee->getPointerElementType();
+                    llvm::Value* desc = llvm_utils->CreateLoad2(pointee, arg_ptr);
+                    llvm::Value* desc_is_null = builder->CreateICmpEQ(
+                        desc, null_pointer(pointee));
+                    llvm::Function* fn = builder->GetInsertBlock()->getParent();
+                    llvm::BasicBlock* cur = builder->GetInsertBlock();
+                    llvm::BasicBlock* live = llvm::BasicBlock::Create(
+                        context, "present_desc", fn);
+                    llvm::BasicBlock* merge = llvm::BasicBlock::Create(
+                        context, "present_merge", fn);
+                    builder->CreateCondBr(desc_is_null, merge, live);
+                    builder->SetInsertPoint(live);
+                    llvm::Value* data_present = descriptor_data_present(desc_ty, desc);
+                    builder->CreateBr(merge);
+                    builder->SetInsertPoint(merge);
+                    llvm::PHINode* phi = builder->CreatePHI(
+                        llvm::Type::getInt1Ty(context), 2);
+                    phi->addIncoming(llvm::ConstantInt::getFalse(context), cur);
+                    phi->addIncoming(data_present, live);
+                    tmp = phi;
+                } else if (data_pointer_in_descriptor) {
+                    tmp = descriptor_data_present(pointee, arg_ptr);
+                } else if (ASR::is_a<ASR::CPtr_t>(*arg_var->m_type) &&
+                        LLVM::is_cptr_dummy_in_local_storage(*arg_var) &&
+                        pointee && pointee->isPointerTy()) {
+                    // intent(in) type(c_ptr) is held as void**. The value,
+                    // not the local slot, is null when the argument is absent.
+                    llvm::Type* cptr_ty = llvm::Type::getVoidTy(context)->getPointerTo();
+                    llvm::Value* loaded = llvm_utils->CreateLoad2(cptr_ty, arg_ptr);
+                    tmp = builder->CreateICmpNE(loaded, null_pointer(cptr_ty));
                 } else {
                     tmp = builder->CreateICmpNE(arg_ptr,
-                        llvm::ConstantPointerNull::get(
-                            llvm::cast<llvm::PointerType>(arg_ptr->getType())));
+                        null_pointer(arg_ptr->getType()));
                 }
                 break;
             }
