@@ -11963,17 +11963,27 @@ public:
                 tu_symbol_prefix(x.m_symtab->parent, mangle_prefix, sym_name), procedure_host
             );
             if (llvm_symtab_fn_names.find(fn_name) == llvm_symtab_fn_names.end()) {
-                llvm_symtab_fn_names[fn_name] = h;
-                F = llvm::Function::Create(function_type,
-                    llvm::Function::ExternalLinkage, fn_name, module.get());
-                // Compiler-generated helper functions (e.g.
-                // _lcompiler_optimization_exponent_*) are emitted identically
-                // in every compilation unit that uses them.  Use
-                // LinkOnceODRLinkage so the linker keeps only one copy
-                // instead of erroring with "multiple definition".
-                if (fn_name.rfind("_lcompiler_", 0) == 0) {
-                    F->setLinkage(llvm::Function::LinkOnceODRLinkage);
+                llvm::Function* existing = module->getFunction(fn_name);
+                if (existing && ftype->m_abi == ASR::abiType::BindC
+                        && existing->getFunctionType() == function_type) {
+                    // The C name is already declared, for example by a
+                    // runtime call of exit. Creating another function of
+                    // that name makes LLVM rename it, and the call no
+                    // longer resolves to the C function.
+                    F = existing;
+                } else {
+                    F = llvm::Function::Create(function_type,
+                        llvm::Function::ExternalLinkage, fn_name, module.get());
+                    // Compiler-generated helper functions (e.g.
+                    // _lcompiler_optimization_exponent_*) are emitted identically
+                    // in every compilation unit that uses them.  Use
+                    // LinkOnceODRLinkage so the linker keeps only one copy
+                    // instead of erroring with "multiple definition".
+                    if (fn_name.rfind("_lcompiler_", 0) == 0) {
+                        F->setLinkage(llvm::Function::LinkOnceODRLinkage);
+                    }
                 }
+                llvm_symtab_fn_names[fn_name] = h;
             } else {
                 uint64_t old_h = llvm_symtab_fn_names[fn_name];
                 F = llvm_symtab_fn[old_h];
@@ -12080,9 +12090,18 @@ public:
                         fn_name = mangle_prefix + sym_name;
                     }
                     if (llvm_symtab_fn_names.find(fn_name) == llvm_symtab_fn_names.end()) {
+                        llvm::Function* existing = module->getFunction(fn_name);
+                        llvm::Function* F = nullptr;
+                        if (existing
+                                && ASRUtils::get_FunctionType(*var)->m_abi
+                                    == ASR::abiType::BindC
+                                && existing->getFunctionType() == function_type) {
+                            F = existing;
+                        } else {
+                            F = llvm::Function::Create(function_type,
+                                llvm::Function::ExternalLinkage, fn_name, module.get());
+                        }
                         llvm_symtab_fn_names[fn_name] = h;
-                        llvm::Function* F = llvm::Function::Create(function_type,
-                            llvm::Function::ExternalLinkage, fn_name, module.get());
                         llvm_symtab_fn[h] = F;
                     } else {
                         uint64_t old_h = llvm_symtab_fn_names[fn_name];
