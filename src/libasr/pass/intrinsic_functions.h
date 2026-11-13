@@ -5538,14 +5538,30 @@ namespace Real {
 
     static ASR::expr_t *eval_Real(Allocator &al, const Location &loc,
             ASR::ttype_t* t1, Vec<ASR::expr_t*> &args, diag::Diagnostics& diag) {
-        if (ASR::is_a<ASR::IntegerConstant_t>(*args[0])) {
-            int64_t i = ASR::down_cast<ASR::IntegerConstant_t>(ASRUtils::expr_value(args[0]))->m_n;
+        ASR::expr_t* arg = args[0];
+        if (ASRUtils::expr_value(arg) != nullptr) {
+            arg = ASRUtils::expr_value(arg);
+        }
+        if (ASR::is_a<ASR::ComplexConstructor_t>(*arg)) {
+            // complex(10) and complex(16) constants are constructors, not
+            // ComplexConstants. real() is the real part.
+            ASR::ComplexConstructor_t* c = ASR::down_cast<ASR::ComplexConstructor_t>(arg);
+            ASR::expr_t* re = ASRUtils::expr_value(c->m_re);
+            if (re == nullptr) {
+                re = c->m_re;
+            }
+            Vec<ASR::expr_t*> part; part.reserve(al, 1);
+            part.push_back(al, re);
+            return eval_Real(al, loc, t1, part, diag);
+        }
+        if (ASR::is_a<ASR::IntegerConstant_t>(*arg)) {
+            int64_t i = ASR::down_cast<ASR::IntegerConstant_t>(arg)->m_n;
             if (ASRUtils::extract_kind_from_ttype_t(t1) == 16) {
                 return ASRUtils::make_RealConstant_r16(al, loc, lf_f128_from_int64(i), t1);
             }
             return ASRUtils::make_RealConstant_util(al, loc, (double)i, t1);
-        } else if (ASR::is_a<ASR::RealConstant_t>(*args[0])) {
-            ASR::RealConstant_t *r = ASR::down_cast<ASR::RealConstant_t>(ASRUtils::expr_value(args[0]));
+        } else if (ASR::is_a<ASR::RealConstant_t>(*arg)) {
+            ASR::RealConstant_t *r = ASR::down_cast<ASR::RealConstant_t>(arg);
             int src_kind = ASRUtils::extract_kind_from_ttype_t(r->m_type);
             int dest_kind = ASRUtils::extract_kind_from_ttype_t(t1);
             if (src_kind == 16) {
@@ -5570,8 +5586,8 @@ namespace Real {
             }
             return ASRUtils::make_RealConstant_util(al, loc,
                 ASRUtils::real_constant_get_double(r), t1);
-        } else if (ASR::is_a<ASR::ComplexConstant_t>(*args[0])) {
-            ASR::ComplexConstant_t *c = ASR::down_cast<ASR::ComplexConstant_t>(ASRUtils::expr_value(args[0]));
+        } else if (ASR::is_a<ASR::ComplexConstant_t>(*arg)) {
+            ASR::ComplexConstant_t *c = ASR::down_cast<ASR::ComplexConstant_t>(arg);
             int dest_kind = ASRUtils::extract_kind_from_ttype_t(t1);
             // Kind 10 and 16 do not store the numeric value in the double
             // payload of a RealConstant.
