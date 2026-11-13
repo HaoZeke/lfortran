@@ -26918,10 +26918,33 @@ public:
 
             if( x.m_args[i].m_value == nullptr ) {
                 LCOMPILERS_ASSERT(orig_arg != nullptr);
-                // An absent optional is a null pointer of this argument's
-                // type. The function signature may list a character result
-                // first, so the argument's position there is not `i`. A
-                // character dummy with a hidden length is the data pointer.
+                // An absent optional is a null pointer of this argument.
+                // convert_args lists a character result first, so argument
+                // i is not signature slot i: find the slot this argument
+                // was moved to. A character dummy with a hidden length is
+                // still handled below when that lookup does not apply.
+                if (ASR::is_a<ASR::Function_t>(*func_subrout)) {
+                    ASR::Function_t *fn = ASR::down_cast<ASR::Function_t>(
+                        func_subrout);
+                    std::vector<llvm::Type*> sig = llvm_utils->convert_args(
+                        *fn, module.get());
+                    std::vector<size_t> order =
+                        ASRUtils::gfortran_character_result_arg_order(*fn);
+                    size_t slot = i;
+                    if (order.size() == sig.size()) {
+                        for (size_t k = 0; k < order.size(); k++) {
+                            if (order[k] == i) {
+                                slot = k;
+                                break;
+                            }
+                        }
+                    }
+                    if (slot < sig.size() && sig[slot]->isPointerTy()) {
+                        args.push_back(llvm::ConstantPointerNull::get(
+                            llvm::cast<llvm::PointerType>(sig[slot])));
+                        continue;
+                    }
+                }
                 if (pass_string_data) {
                     args.push_back(llvm::ConstantPointerNull::get(
                         llvm_utils->character_type));
