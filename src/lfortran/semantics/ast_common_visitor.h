@@ -25043,9 +25043,10 @@ public:
     // actual of `args` has another numeric type or kind than its dummy.
     // `--implicit-argument-casting` allows every such mismatch. With only
     // `--implicit-interface`, a real actual may be passed to an integer
-    // dummy: the reference is made through an interface built from the
-    // actuals, so the bytes are not converted, as gfortran does for an
-    // external procedure. Integer kind mismatches keep their own handling.
+    // dummy and a complex actual to a real dummy: the reference is made
+    // through an interface built from the actuals, so the bytes are not
+    // converted, as gfortran does for an external procedure. Integer kind
+    // mismatches keep their own handling.
     bool is_mismatched_external_procedure_call(ASR::symbol_t* proc,
             const Vec<ASR::call_arg_t> &args) {
         auto definition = external_procedure_definitions.find(proc);
@@ -25103,6 +25104,12 @@ public:
             // element is what the integer dummy reads.
             if (ASR::is_a<ASR::Real_t>(*actual_elem)
                     && ASR::is_a<ASR::Integer_t>(*dummy_elem)) {
+                return true;
+            }
+            // A complex workspace passed to a real dummy is the two
+            // real halves, again without converting them.
+            if (ASR::is_a<ASR::Complex_t>(*actual_elem)
+                    && ASR::is_a<ASR::Real_t>(*dummy_elem)) {
                 return true;
             }
         }
