@@ -258,6 +258,17 @@ class GlobalInitVisitor {
             if (ASR::is_a<ASR::Cast_t>(*init)) {
                 init = ASR::down_cast<ASR::Cast_t>(init)->m_arg;
             }
+            // `reshape` of an array the backend cannot lay out as a constant,
+            // such as `complex(16)`, is evaluated with stack memory. A module
+            // or saved variable has no function to allocate that in, so the
+            // initializer is assigned from the global init instead.
+            if (ASR::is_a<ASR::ArrayReshape_t>(*init)) {
+                ASR::expr_t *value = v.m_value ? v.m_value
+                    : ASRUtils::expr_value(init);
+                bool constant = value && (ASR::is_a<ASR::ArrayConstant_t>(*value)
+                    || ASR::is_a<ASR::ArrayConstructor_t>(*value));
+                return !constant;
+            }
             // A saved structure local whose initializer is not a constant
             // the backend can lay out, such as `t(f)` with a procedure
             // target, is assigned once, the first time control reaches it.
