@@ -1197,6 +1197,71 @@ static void disable_upper_bound_unrolling() {
 }
 #endif
 
+// glibc libmvec names for exp. Width is the lane count. A width with no
+// entry here is left as the LLVM intrinsic.
+// Only double. The float entry points differ from scalar expf in the last
+// bit, and elemental tests compare those results exactly.
+static const char *libmvec_exp_name(bool is_float, unsigned width) {
+    if (is_float) {
+        return nullptr;
+    }
+    switch (width) {
+        case 2: return "_ZGVbN2v_exp";   // SSE
+        case 4: return "_ZGVcN4v_exp";   // AVX
+        case 8: return "_ZGVeN8v_exp";   // AVX-512
+        default: return nullptr;
+    }
+}
+
+static void lower_vector_exp_to_libmvec(llvm::Module &m) {
+    llvm::Triple triple(m.getTargetTriple());
+    if (!triple.isX86() || triple.isArch32Bit()) {
+        return;
+    }
+    std::vector<llvm::CallInst *> calls;
+    for (llvm::Function &f : m) {
+        for (llvm::BasicBlock &bb : f) {
+            for (llvm::Instruction &inst : bb) {
+                auto *call = llvm::dyn_cast<llvm::CallInst>(&inst);
+                if (call == nullptr || call->getIntrinsicID() != llvm::Intrinsic::exp) {
+                    continue;
+                }
+#if LLVM_VERSION_MAJOR >= 11
+                if (llvm::isa<llvm::FixedVectorType>(call->getType())) {
+#else
+                if (llvm::isa<llvm::VectorType>(call->getType())) {
+#endif
+                    calls.push_back(call);
+                }
+            }
+        }
+    }
+    for (llvm::CallInst *call : calls) {
+#if LLVM_VERSION_MAJOR >= 11
+        auto *vec = llvm::cast<llvm::FixedVectorType>(call->getType());
+#else
+        auto *vec = llvm::cast<llvm::VectorType>(call->getType());
+#endif
+        unsigned width = vec->getNumElements();
+        bool is_float = vec->getElementType()->isFloatTy();
+        if (!is_float && !vec->getElementType()->isDoubleTy()) {
+            continue;
+        }
+        const char *name = libmvec_exp_name(is_float, width);
+        if (name == nullptr) {
+            continue;
+        }
+        llvm::FunctionType *fty = llvm::FunctionType::get(vec, {vec}, false);
+        llvm::FunctionCallee fn = m.getOrInsertFunction(name, fty);
+        llvm::CallInst *vec_call = llvm::CallInst::Create(
+            fty, fn.getCallee(), {call->getArgOperand(0)}, "", call);
+        vec_call->copyFastMathFlags(call);
+        vec_call->setTailCallKind(call->getTailCallKind());
+        call->replaceAllUsesWith(vec_call);
+        call->eraseFromParent();
+    }
+}
+
 void LLVMEvaluator::opt(llvm::Module &m) {
     configure_module(m);
 
@@ -1351,6 +1416,10 @@ void LLVMEvaluator::opt(llvm::Module &m) {
     for (llvm::Function &f : m) {
         expand_reciprocal_sqrt(f, TM->getTargetTriple());
     }
+    // llvm.exp.vNf64 survives as a vector intrinsic and the x86 backend then
+    // calls scalar exp once per lane. glibc libmvec has the widened entry
+    // points; use those instead.
+    lower_vector_exp_to_libmvec(m);
 }
 
 std::string LLVMEvaluator::module_to_string(llvm::Module &m) {

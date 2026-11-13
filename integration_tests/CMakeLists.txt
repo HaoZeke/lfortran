@@ -7987,6 +7987,7 @@ RUN(NAME detect_leaks_01 LABELS gfortran llvm EXTRA_ARGS --detect-leaks)
 # Its procedures do not link with --separate-compilation yet (#15852).
 RUN(NAME display_data_01 LABELS llvm NO_LLVM_GOC)
 RUN(NAME scalar_partial_sum_01 LABELS gfortran llvm)
+RUN(NAME vector_exp_01 LABELS gfortran llvm)
 
 if (LFORTRAN_SMOKE)
     get_property(smoke_tests DIRECTORY PROPERTY TESTS)
