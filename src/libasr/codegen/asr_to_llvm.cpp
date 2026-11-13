@@ -12473,6 +12473,18 @@ public:
                         llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), dim_desc_size));
                     builder->CreateMemCpy(dst_dims, llvm::MaybeAlign(), src_dims,
                         llvm::MaybeAlign(), dim_copy_bytes);
+                    // The CFI type and element length live in the descriptor.
+                    // A later bind(C) call reads them from this local copy.
+                    llvm::Value* src_elem_len = llvm_utils->CreateLoad2(
+                        llvm::Type::getInt64Ty(context),
+                        llvm_utils->create_gep2(desc_array_type, arg_array_desc, 1));
+                    builder->CreateStore(src_elem_len,
+                        llvm_utils->create_gep2(desc_array_type, array_desc, 1));
+                    llvm::Value* src_cfi_type = llvm_utils->CreateLoad2(
+                        llvm::Type::getInt8Ty(context),
+                        llvm_utils->create_gep2(desc_array_type, arg_array_desc, 4));
+                    builder->CreateStore(src_cfi_type,
+                        llvm_utils->create_gep2(desc_array_type, array_desc, 4));
                 } else {
                     ASR::dimension_t* m_dims = nullptr;
                     int n_dims = checked_integer_cast<int>(ASRUtils::extract_dimensions_from_ttype(symbol_type, m_dims));
