@@ -8002,6 +8002,9 @@ RUN(NAME gather_div_01 LABELS gfortran llvm EXTRA_ARGS --fast --no-fast-math)
 # Indirect column update. The loaded index is 32-bit; the values are the
 # in-order sum, contracted under --fast.
 RUN(NAME gather_idx_01 LABELS gfortran llvm EXTRA_ARGS --fast)
+# Givens cos/sin are locals. --fast must pass their addresses and still
+# write back a local that the callee updates.
+RUN(NAME givens_rota_01 LABELS gfortran llvm EXTRA_ARGS --fast)
 # Strided inner product. --fast must keep the sum, including when the
 # strided operand is not gathered.
 RUN(NAME matmul_strided_01 LABELS gfortran llvm EXTRA_ARGS --fast)

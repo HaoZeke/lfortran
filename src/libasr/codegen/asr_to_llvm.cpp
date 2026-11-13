@@ -13044,6 +13044,15 @@ public:
         if (t == nullptr || !ASR::is_a<ASR::Real_t>(*t)) {
             return value;
         }
+        // A local already has a stable address. Copying it to a temp at
+        // every call, then copying it back, is what a Givens rotation does
+        // with cos and sin: the caller spills both to the stack on each
+        // iteration. A dummy still goes through the temp so the promoted
+        // local does not escape. The callee writes a local through the
+        // pointer it was given.
+        if (v->m_intent == ASR::intentType::Local) {
+            return value;
+        }
         llvm::Type *val_type = llvm_utils->get_type_from_ttype_t_util(
             actual, v->m_type, module.get());
         if (val_type == nullptr || val_type->isPointerTy()) {
