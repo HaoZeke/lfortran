@@ -19063,7 +19063,11 @@ public:
                 args_without_dt.push_back(al, args[i]);
             }
             validate_missing_required_arguments(loc, args, func);
-            ASRUtils::set_absent_optional_arguments_to_null(args, func, al);
+            // The null for an absent optional has to be on the list the
+            // call is built from. Filling `args` and then using the copy
+            // made above drops it.
+            ASRUtils::set_absent_optional_arguments_to_null(args_without_dt, func, al,
+                args[0].m_value);
             ASR::call_arg_t* call_args = args_without_dt.p;
             size_t n_call_args = args_without_dt.size();
             ASRUtils::insert_self_arg(al, cp_s, call_args, n_call_args, args[0].m_value);
