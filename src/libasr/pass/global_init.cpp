@@ -269,6 +269,26 @@ class GlobalInitVisitor {
                     || ASR::is_a<ASR::ArrayConstructor_t>(*value));
                 return !constant;
             }
+            // An array constructor of `real(10)`, `real(16)` or the matching
+            // complex kind is not packed into an array constant. Emitting it
+            // allocates stack memory, which a module variable does not have,
+            // so the initializer is assigned from the global init instead.
+            if (ASR::is_a<ASR::ArrayConstructor_t>(*init)) {
+                ASR::expr_t *value = v.m_value ? v.m_value
+                    : ASRUtils::expr_value(init);
+                if (value && ASR::is_a<ASR::ArrayConstant_t>(*value)) {
+                    return false;
+                }
+                ASR::ttype_t *el = ASRUtils::type_get_past_array(
+                    ASRUtils::expr_type(init));
+                int kind = 0;
+                if (ASR::is_a<ASR::Real_t>(*el)) {
+                    kind = ASR::down_cast<ASR::Real_t>(el)->m_kind;
+                } else if (ASR::is_a<ASR::Complex_t>(*el)) {
+                    kind = ASR::down_cast<ASR::Complex_t>(el)->m_kind;
+                }
+                return kind == 10 || kind == 16;
+            }
             // A saved structure local whose initializer is not a constant
             // the backend can lay out, such as `t(f)` with a procedure
             // target, is assigned once, the first time control reaches it.
