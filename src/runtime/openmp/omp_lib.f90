@@ -166,6 +166,10 @@ import :: c_int
 integer(c_int), value :: n
 end subroutine omp_set_num_threads
 
+subroutine omp_set_dynamic(dynamic_threads) bind(c, name="omp_set_dynamic")
+logical, value :: dynamic_threads
+end subroutine omp_set_dynamic
+
 function omp_get_num_threads() bind(c, name="omp_get_num_threads")
 import :: c_int
 integer(c_int) :: omp_get_num_threads

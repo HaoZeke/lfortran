@@ -5605,6 +5605,9 @@ RUN(NAME openmp_cond_01 LABELS gfortran llvm
 RUN(NAME character_function_abi_01 LABELS gfortran llvm
     EXTRAFILES character_function_abi_01.c
     EXTRA_ARGS --mangle-underscore-external)
+RUN(NAME string_i64_substring_01 LABELS gfortran llvm
+    EXTRAFILES string_i64_substring_01.c
+    EXTRA_ARGS --mangle-underscore-external)
 RUN(NAME external_underscore_default_01 LABELS gfortran llvm
     EXTRAFILES external_underscore_default_01.c)
 
@@ -6190,6 +6193,7 @@ RUN(NAME frame_specialization_07 LABELS gfortran llvm_omp GFORTRAN_ARGS -fopenmp
 
 RUN(NAME openmp_01 LABELS gfortran llvm_omp GFORTRAN_ARGS -fopenmp)
 RUN(NAME openmp_02 LABELS gfortran llvm_omp GFORTRAN_ARGS -fopenmp)
+RUN(NAME omp_set_dynamic_01 LABELS gfortran llvm_omp GFORTRAN_ARGS -fopenmp)
 RUN(NAME openmp_03 LABELS gfortran llvm_omp GFORTRAN_ARGS -fopenmp)
 RUN(NAME openmp_04 LABELS gfortran llvm_omp GFORTRAN_ARGS -fopenmp)
 RUN(NAME openmp_05 LABELS gfortran llvm_omp GFORTRAN_ARGS -fopenmp)

@@ -2970,7 +2970,10 @@ class ParallelRegionVisitor :
                 ASR::symbol_t* tmp_sym = ASR::down_cast<ASR::symbol_t>(
                                         ASR::make_Variable_t(al, local_var->base.base.loc, local_var->m_parent_symtab,
                                         s2c(al, local_var->m_parent_symtab->get_unique_name("ptr_" + it.first)), local_var->m_dependencies, local_var->n_dependencies,
-                                        local_var->m_intent, nullptr, nullptr,
+                                        // A local pointer. A dummy's intent is not an
+                                        // argument of this procedure, and an intent
+                                        // other than local is never allocated.
+                                        ASR::intentType::Local, nullptr, nullptr,
                                         ASR::storage_typeType::Default, ptr_type, local_var->m_type_declaration,
                                         local_var->m_abi, local_var->m_access, local_var->m_presence,
                                         local_var->m_value_attr, local_var->m_target_attr, local_var->m_contiguous_attr, 
@@ -4267,7 +4270,10 @@ class ParallelRegionVisitor :
                     ASR::make_Variable_t(al, local_var->base.base.loc, local_var->m_parent_symtab,
                     s2c(al, local_var->m_parent_symtab->get_unique_name("ptr_" + it.first)), 
                     local_var->m_dependencies, local_var->n_dependencies,
-                    local_var->m_intent, nullptr, nullptr,
+                    // A local pointer. A dummy's intent is not an
+                    // argument of this procedure, and an intent
+                    // other than local is never allocated.
+                    ASR::intentType::Local, nullptr, nullptr,
                     ASR::storage_typeType::Default, ptr_type, local_var->m_type_declaration,
                     local_var->m_abi, local_var->m_access, local_var->m_presence,
                     local_var->m_value_attr, local_var->m_target_attr, local_var->m_contiguous_attr, 

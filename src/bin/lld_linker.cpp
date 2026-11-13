@@ -595,6 +595,11 @@ int link_elf(
             args.add(openmp_lib_dir);
         }
         args.add("-lomp");
+    } else if (openmp) {
+        // `-fopenmp` without --openmp-lib-dir, which is how Meson and
+        // gfortran ask for the runtime. libgomp defines both the GOMP_*
+        // calls the lowering emits and the omp_* calls in the source.
+        args.add("-lgomp");
     }
     for (const std::string &library : extra_libs) {
         args.add(library);
