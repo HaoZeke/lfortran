@@ -271,10 +271,19 @@ class SymbolRenameVisitor: public ASR::BaseWalkVisitor<SymbolRenameVisitor> {
                     || global_definition)
                     && f_type->m_abi != ASR::abiType::BindC) {
                 std::string name = x.m_name;
-                bool has_reserved_prefix = (startswith(name, "_lfortran") ||
-                                            startswith(name, "_lpython") ||
-                                            startswith(name, "_lcompilers"));
-                if (!has_reserved_prefix && !name.empty()) {
+                // Compiler-generated symbols, not user procedures. A name
+                // such as `__lfortran_coarray_init` or `__module_prif_prif_init`
+                // is the one the runtime and m_global_init look up, so a
+                // GFortran underscore would make the lookup miss it. One
+                // leading underscore does not cover the two these use.
+                bool compiler_runtime_name = startswith(name, "_lfortran")
+                    || startswith(name, "__lfortran")
+                    || startswith(name, "_lpython")
+                    || startswith(name, "__lpython")
+                    || startswith(name, "_lcompilers")
+                    || startswith(name, "__lcompilers")
+                    || startswith(name, "__module_");
+                if (!compiler_runtime_name && !name.empty()) {
                     ASR::symbol_t *sym = ASR::down_cast<ASR::symbol_t>((ASR::asr_t*)&x);
                     // Another mangling option already named this symbol.
                     // Leave that name alone; this option only supplies the
