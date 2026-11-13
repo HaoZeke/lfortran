@@ -15090,6 +15090,107 @@ public:
         return target;
     }
 
+    // True when `st` (or a nested non-polymorphic component, or a parent)
+    // has a scalar class(T) pointer. Such a value already holds a pointer
+    // to a {vptr, data*} box, so a byte copy of it must be left alone.
+    bool struct_has_scalar_class_pointer(ASR::Struct_t* st) {
+        if (st->m_parent) {
+            ASR::symbol_t* parent = ASRUtils::symbol_get_past_external(st->m_parent);
+            if (ASR::is_a<ASR::Struct_t>(*parent) &&
+                    struct_has_scalar_class_pointer(ASR::down_cast<ASR::Struct_t>(parent))) {
+                return true;
+            }
+        }
+        for (size_t i = 0; i < st->n_members; i++) {
+            ASR::symbol_t* mem = st->m_symtab->get_symbol(st->m_members[i]);
+            if (!mem || !ASR::is_a<ASR::Variable_t>(*mem)) continue;
+            ASR::Variable_t* var = ASR::down_cast<ASR::Variable_t>(mem);
+            ASR::ttype_t* ty = var->m_type;
+            if (ASRUtils::is_array(ty)) continue;
+            if (ASRUtils::is_pointer(ty) &&
+                    ASRUtils::is_class_type(ASRUtils::extract_type(ty)) &&
+                    !ASRUtils::is_unlimited_polymorphic_type(ty)) {
+                return true;
+            }
+            if (!ASRUtils::is_pointer(ty) && !ASRUtils::is_allocatable(ty) &&
+                    ASR::is_a<ASR::StructType_t>(*ASRUtils::extract_type(ty)) &&
+                    var->m_type_declaration) {
+                ASR::symbol_t* nested = ASRUtils::symbol_get_past_external(
+                    var->m_type_declaration);
+                if (ASR::is_a<ASR::Struct_t>(*nested) &&
+                        struct_has_scalar_class_pointer(
+                            ASR::down_cast<ASR::Struct_t>(nested))) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    // `transfer` of a type(T) pointer into a class(T) pointer copies the
+    // target address. A class pointer's value is a pointer to a
+    // {vptr, data*} box, the same one a pointer assignment builds, so wrap
+    // that address. A source that already contains a class pointer is
+    // already a box and is not wrapped again.
+    void rebox_transferred_class_pointers(ASR::Struct_t* st, llvm::Value* struct_ptr) {
+        if (st->m_parent) {
+            ASR::symbol_t* parent = ASRUtils::symbol_get_past_external(st->m_parent);
+            if (ASR::is_a<ASR::Struct_t>(*parent)) {
+                llvm::Type* struct_ty = llvm_utils->getStructType(st, module.get());
+                rebox_transferred_class_pointers(ASR::down_cast<ASR::Struct_t>(parent),
+                    llvm_utils->create_gep2(struct_ty, struct_ptr, 0));
+            }
+        }
+        llvm::Type* struct_ty = llvm_utils->getStructType(st, module.get());
+        std::string key = get_type_key(st);
+        for (size_t i = 0; i < st->n_members; i++) {
+            ASR::symbol_t* mem = st->m_symtab->get_symbol(st->m_members[i]);
+            if (!mem || !ASR::is_a<ASR::Variable_t>(*mem)) continue;
+            ASR::Variable_t* var = ASR::down_cast<ASR::Variable_t>(mem);
+            ASR::ttype_t* ty = var->m_type;
+            if (ASRUtils::is_array(ty) || var->m_type_declaration == nullptr) continue;
+            int idx = llvm_utils->name2memidx[key][var->m_name];
+            llvm::Value* slot = llvm_utils->create_gep2(struct_ty, struct_ptr, idx);
+            if (ASRUtils::is_pointer(ty) &&
+                    ASRUtils::is_class_type(ASRUtils::extract_type(ty)) &&
+                    !ASRUtils::is_unlimited_polymorphic_type(ty)) {
+                ASR::symbol_t* class_sym = ASRUtils::symbol_get_past_external(
+                    var->m_type_declaration);
+                if (!ASR::is_a<ASR::Struct_t>(*class_sym)) continue;
+                ASR::Struct_t* class_st = ASR::down_cast<ASR::Struct_t>(class_sym);
+                llvm::Type* class_ty = llvm_utils->getClassType(class_st, false);
+                llvm::PointerType* class_ptr_ty = class_ty->getPointerTo();
+                llvm::Value* raw = llvm_utils->CreateLoad2(class_ptr_ty, slot);
+                llvm_utils->create_if_else(builder->CreateIsNull(raw), []() {}, [&]() {
+                    struct_api->create_new_vtable_for_struct_type(class_sym, module.get());
+                    llvm::DataLayout data_layout(module->getDataLayout());
+                    llvm::Value* bytes = llvm::ConstantInt::get(llvm::Type::getInt32Ty(context),
+                        data_layout.getTypeAllocSize(class_ty));
+                    llvm::Value* wrapper = builder->CreateBitCast(
+                        LLVMArrUtils::lfortran_malloc(context, *module, *builder, bytes),
+                        class_ptr_ty);
+                    struct_api->store_class_vptr(class_sym, wrapper, module.get());
+                    llvm::Type* data_ty = llvm::cast<llvm::StructType>(class_ty)->getElementType(1);
+                    llvm::Value* data = raw;
+                    if (data->getType() != data_ty) {
+                        data = builder->CreateBitCast(data, data_ty);
+                    }
+                    builder->CreateStore(data, llvm_utils->create_gep2(class_ty, wrapper, 1));
+                    builder->CreateStore(wrapper, slot);
+                });
+            } else if (!ASRUtils::is_pointer(ty) && !ASRUtils::is_allocatable(ty) &&
+                    ASR::is_a<ASR::StructType_t>(*ASRUtils::extract_type(ty)) &&
+                    !ASRUtils::is_class_type(ASRUtils::extract_type(ty))) {
+                ASR::symbol_t* nested = ASRUtils::symbol_get_past_external(
+                    var->m_type_declaration);
+                if (ASR::is_a<ASR::Struct_t>(*nested)) {
+                    rebox_transferred_class_pointers(
+                        ASR::down_cast<ASR::Struct_t>(nested), slot);
+                }
+            }
+        }
+    }
+
     void visit_Assignment(const ASR::Assignment_t &x) {
         DeallocateStringsScope _scope(this);
         if (compiler_options.emit_debug_info) debug_emit_loc(x);
@@ -15435,6 +15536,26 @@ public:
                         dest_i8, llvm::MaybeAlign(1),
                         src_i8, llvm::MaybeAlign(1),
                         llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), nbytes));
+                    // A type(T) pointer transferred into a class(T) pointer is
+                    // the target address. Install the class box around it.
+                    ASR::ttype_t* src_past = ASRUtils::type_get_past_array(src_base);
+                    bool source_is_class_pointer = false;
+                    if (ASR::is_a<ASR::StructType_t>(*src_past)) {
+                        ASR::symbol_t* src_sym = ASRUtils::symbol_get_past_external(
+                            ASRUtils::get_struct_sym_from_struct_expr(bc->m_source));
+                        if (src_sym && ASR::is_a<ASR::Struct_t>(*src_sym)) {
+                            source_is_class_pointer = struct_has_scalar_class_pointer(
+                                ASR::down_cast<ASR::Struct_t>(src_sym));
+                        }
+                    }
+                    if (!source_is_class_pointer) {
+                        ASR::symbol_t* dest_sym = ASRUtils::symbol_get_past_external(
+                            ASRUtils::get_struct_sym_from_struct_expr(x.m_target));
+                        if (dest_sym && ASR::is_a<ASR::Struct_t>(*dest_sym)) {
+                            rebox_transferred_class_pointers(
+                                ASR::down_cast<ASR::Struct_t>(dest_sym), dest_ptr);
+                        }
+                    }
                     return;
                 }
             }
