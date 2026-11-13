@@ -7987,6 +7987,9 @@ RUN(NAME detect_leaks_01 LABELS gfortran llvm EXTRA_ARGS --detect-leaks)
 # Its procedures do not link with --separate-compilation yet (#15852).
 RUN(NAME display_data_01 LABELS llvm NO_LLVM_GOC)
 RUN(NAME scalar_partial_sum_01 LABELS gfortran llvm)
+# Half of tiny() is subnormal. Fast math flushes it, as gfortran does
+# when fast math is enabled.
+RUN(NAME fast_math_ftz_01 LABELS gfortran llvm EXTRAFILES fast_math_ftz_01_c.c EXTRA_ARGS --fast GFORTRAN_ARGS -ffast-math)
 RUN(NAME vector_exp_01 LABELS gfortran llvm)
 RUN(NAME call_loop_01 LABELS gfortran llvm)
 RUN(NAME char_task_01 LABELS gfortran llvm)
