@@ -2718,6 +2718,12 @@ public:
                     }
                     // Previous declaration will be shadowed
                     parent_scope->erase_symbol(sym_name);
+                } else if (ASRUtils::get_FunctionType(f2)->m_deftype ==
+                            ASR::deftypeType::ImplicitInterface &&
+                        deftype == ASR::deftypeType::Interface) {
+                    // `external s` names the procedure. An interface body
+                    // for that name is its explicit interface.
+                    parent_scope->erase_symbol(sym_name);
                 } else {
                     diag.add(diag::Diagnostic(
                         "Subroutine already defined " + sym_name,
@@ -3751,6 +3757,12 @@ public:
                         in_Subroutine = false;
                         throw SemanticAbort();
                     }
+                    parent_scope->erase_symbol(sym_name);
+                } else if (ASRUtils::get_FunctionType(f2)->m_deftype ==
+                            ASR::deftypeType::ImplicitInterface &&
+                        deftype == ASR::deftypeType::Interface) {
+                    // `external f` does not by itself fix a type. The
+                    // interface body is the explicit interface.
                     parent_scope->erase_symbol(sym_name);
                 } else if (ASRUtils::types_equal(f2->m_function_signature,
                         func->m_function_signature,
