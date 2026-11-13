@@ -2383,12 +2383,25 @@ struct FixedFormRecursiveDescent {
     }
 
     void lex_global_scope(unsigned char *&cur, bool continue_compilation, diag::Diagnostics &diagnostics) {
-        auto next = cur;
+        // The prescanner leaves only newlines for an empty file and for a
+        // file that is only comments. f2py writes that when a wrapper has
+        // no procedures. A translation unit with no statements is an empty
+        // program, not an error.
+        bool any = false;
         while (*cur != '\0') {
-            // eat_label(cur);
-            next_line(next);
+            if (*cur == '\n') {
+                cur++;
+                continue;
+            }
+            any = true;
             lex_global_scope_item(cur, continue_compilation, diagnostics);
-            next = cur;
+        }
+        if (!any) {
+            push_token_no_advance(cur, "program");
+            push_token_no_advance_token(cur, "implicit_program_lfortran", TK_NAME);
+            push_token_no_advance(cur, "\n");
+            push_token_no_advance(cur, "end");
+            push_token_no_advance(cur, "\n");
         }
         push_token_no_advance(cur, "EOF");
     }
