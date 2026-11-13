@@ -2364,6 +2364,10 @@ public:
         // external function call in a program that also has a CONTAINS section)
         // would wrongly be seen as having no interface.
         std::vector<std::string> saved_external_procedures = external_procedures;
+        // The saved list is the host's. This subroutine, and an interface
+        // body nested in it, must not treat the host's EXTERNAL names as
+        // its own: a dummy of the same name is a different entity.
+        external_procedures.clear();
         // Pending `optional` statements apply only to the scoping unit in
         // which they appear: start empty and restore the host's entries once
         // this procedure (possibly an interface body) has been processed.
@@ -3050,6 +3054,10 @@ public:
         // procedure (dropping its explicitly declared type). This mirrors the
         // handling in visit_Subroutine.
         std::vector<std::string> saved_external_procedures = external_procedures;
+        // The saved list is the host's. This function, and an interface
+        // body nested in it, must not treat the host's EXTERNAL names as
+        // its own: a dummy of the same name is a different entity.
+        external_procedures.clear();
         // Pending `optional` statements apply only to the scoping unit in
         // which they appear: start empty and restore the host's entries once
         // this procedure (possibly an interface body) has been processed.

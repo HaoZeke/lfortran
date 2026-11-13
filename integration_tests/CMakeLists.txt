@@ -6020,6 +6020,8 @@ RUN(NAME integer_kind_16_read LABELS gfortran llvm)
 
 RUN(NAME integer_kind_16_boz_nml LABELS gfortran llvm)
 
+RUN(NAME procedure_iface_external LABELS gfortran llvm)
+
 RUN(NAME capital_01 LABELS gfortran llvmImplicit)
 
 RUN(NAME do_concurrent_01 LABELS gfortran llvm llvm_wasm llvm_wasm_emcc mlir)
