@@ -528,10 +528,12 @@ struct Stacktrace {
 
 /* --- Default allocator implementation --- */
 
-/* glibc malloc aligns to 16 bytes. AVX BLAS kernels (and gfortran's local
-   numeric arrays, which realign the stack to 32 bytes) want 32. A numeric
-   array is a multiple of the element size, so those requests are aligned
-   here. Smaller requests stay with malloc. */
+/* glibc malloc aligns to 16 bytes. AVX BLAS kernels want 32, which is
+   what gfortran gives a large local numeric array by realigning the
+   stack. A short allocatable (a few doubles) does not reach those
+   kernels, and posix_memalign is slower than malloc there, so only
+   requests of at least 256 bytes are aligned. The chunk size glibc
+   returns does not grow. Smaller requests stay with malloc. */
 static void* aligned_alloc_32(size_t size) {
     void *p = NULL;
     if (size == 0) size = 1;
@@ -549,7 +551,7 @@ static int want_blas_alignment(int64_t size) {
     (void)size;
     return 0;
 #else
-    return size >= 32 && (size % 8) == 0;
+    return size >= 256 && (size % 8) == 0;
 #endif
 }
 
