@@ -7945,6 +7945,7 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR MATCHES "x86_6
     RUN(NAME real80_complex_real_01 LABELS gfortran llvm)
     RUN(NAME ieee_value_real80_01 LABELS gfortran llvm)
     RUN(NAME complex10_parameter_01 LABELS gfortran llvm)
+    RUN(NAME real80_inquiry_01 LABELS gfortran llvm)
     # The value check waits on #17031.
     RUN(NAME separate_compilation_73 LABELS gfortran llvm
         EXTRAFILES separate_compilation_73a.f90) # real(10) constant round-trip through a mod file (#17032)

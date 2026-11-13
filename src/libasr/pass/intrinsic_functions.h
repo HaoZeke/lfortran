@@ -7309,6 +7309,9 @@ namespace Digits {
                 return make_ConstantWithType(make_IntegerConstant_t, 24, int32, loc);
             } else if (kind == 8) {
                 return make_ConstantWithType(make_IntegerConstant_t, 53, int32, loc);
+            } else if (kind == 10) {
+                return make_ConstantWithType(make_IntegerConstant_t,
+                    std::numeric_limits<long double>::digits, int32, loc);
             } else if (kind == 16) {
                 return make_ConstantWithType(make_IntegerConstant_t, 113, int32, loc);
             } else {
@@ -7338,6 +7341,9 @@ namespace Digits {
                 body.push_back(al, b.Assignment(result, b.i32(24)));
             } else if (kind == 8) {
                 body.push_back(al, b.Assignment(result, b.i32(53)));
+            } else if (kind == 10) {
+                body.push_back(al, b.Assignment(result, b.i32(
+                    std::numeric_limits<long double>::digits)));
             } else if (kind == 16) {
                 body.push_back(al, b.Assignment(result, b.i32(113)));
             }
@@ -7997,6 +8003,8 @@ namespace MinExponent {
         int result;
         if (m_kind == 4) {
             result = std::numeric_limits<float>::min_exponent;
+        } else if (m_kind == 10) {
+            result = std::numeric_limits<long double>::min_exponent;
         } else if (m_kind == 16) {
             result = -16381;
         } else {
@@ -8015,6 +8023,8 @@ namespace MaxExponent {
         int result;
         if (m_kind == 4) {
             result = std::numeric_limits<float>::max_exponent;
+        } else if (m_kind == 10) {
+            result = std::numeric_limits<long double>::max_exponent;
         } else if (m_kind == 16) {
             result = 16384;
         } else {
