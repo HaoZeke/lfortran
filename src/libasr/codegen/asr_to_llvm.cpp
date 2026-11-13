@@ -698,6 +698,14 @@ public:
 
     llvm::Value *tmp;
     llvm::BasicBlock *proc_return;
+    // Under --fast, a scalar reference dummy is copied into a local so a
+    // call does not clobber the running value. It is written back at return.
+    struct ScalarDummyWriteback {
+        llvm::Value* local;
+        llvm::Value* arg;
+        llvm::Type* type;
+    };
+    std::vector<std::vector<ScalarDummyWriteback>> scalar_dummy_writebacks;
     std::string mangle_prefix;
     bool prototype_only;
     llvm::StructType *complex_type_4, *complex_type_8, *complex_type_10,
@@ -11548,6 +11556,34 @@ public:
         }
     }
 
+    // A scalar numeric reference dummy can live in a local under --fast.
+    // An unknown call otherwise has to reload it: the call may write any
+    // memory, including the caller's argument slot.
+    bool scalar_reference_dummy_in_local(const ASR::Function_t &fn,
+            const ASR::Variable_t &arg) {
+        if (!compiler_options.po.fast) {
+            return false;
+        }
+        if (ASRUtils::get_FunctionType(fn)->m_abi == ASR::abiType::BindC) {
+            return false;
+        }
+        if (arg.m_value_attr || arg.m_target_attr || arg.m_is_volatile
+                || arg.m_common_block != nullptr
+                || arg.m_presence == ASR::presenceType::Optional
+                || !is_arg_dummy(arg.m_intent)) {
+            return false;
+        }
+        if (ASRUtils::is_array(arg.m_type) || ASRUtils::is_allocatable(arg.m_type)
+                || ASRUtils::is_pointer(arg.m_type)
+                || ASRUtils::is_character(*arg.m_type)) {
+            return false;
+        }
+        // Only real scalars. Integer and complex reference dummies include
+        // ABI-sensitive lengths and aggregates; a wrong load there faults.
+        ASR::ttype_t *t = ASRUtils::extract_type(arg.m_type);
+        return ASR::is_a<ASR::Real_t>(*t);
+    }
+
     // F is the function that we are generating and we go over all arguments
     // (F.args()) and handle three cases:
     //     * Variable (`integer :: x`)
@@ -11684,6 +11720,27 @@ public:
                             llvm_arg.getType(), nullptr, std::string(arg->m_name) + "_value");
                         builder->CreateStore(llvm_sym, local_copy);
                         llvm_sym = local_copy;
+                    }
+                    if (scalar_reference_dummy_in_local(x, *arg)
+                            && llvm_sym->getType()->isPointerTy()) {
+                        llvm::Type* val_type = llvm_utils->get_type_from_ttype_t_util(
+                            x.m_args[asr_arg_idx], arg->m_type, module.get());
+                        if (val_type != nullptr && !val_type->isPointerTy()
+#if LLVM_VERSION_MAJOR < 15
+                                && llvm_sym->getType()->getPointerElementType() == val_type
+#endif
+                                ) {
+                            llvm::Value* local = builder->CreateAlloca(val_type,
+                                nullptr, std::string(arg->m_name) + "_reg");
+                            builder->CreateStore(llvm_utils->CreateLoad2(
+                                val_type, llvm_sym), local);
+                            if (arg->m_intent != ASR::intentType::In
+                                    && !scalar_dummy_writebacks.empty()) {
+                                scalar_dummy_writebacks.back().push_back(
+                                    ScalarDummyWriteback{local, llvm_sym, val_type});
+                            }
+                            llvm_sym = local;
+                        }
                     }
                     uint64_t h = get_hash((ASR::asr_t*)arg);
                     std::string arg_s = arg->m_name;
@@ -12182,6 +12239,7 @@ public:
     }
 
     inline void define_function_entry(const ASR::Function_t& x) {
+        scalar_dummy_writebacks.emplace_back();
         uint64_t h = get_hash((ASR::asr_t*)&x);
         procedure_host = &x.base;
         llvm::Function* F = llvm_symtab_fn[h];
@@ -12731,10 +12789,21 @@ public:
         }
     }
 
+    void write_back_scalar_dummies() {
+        if (scalar_dummy_writebacks.empty()) {
+            return;
+        }
+        for (ScalarDummyWriteback &w : scalar_dummy_writebacks.back()) {
+            builder->CreateStore(llvm_utils->CreateLoad2(w.type, w.local), w.arg);
+        }
+        scalar_dummy_writebacks.pop_back();
+    }
+
     inline void define_function_exit(const ASR::Function_t& x) {
         if (compiler_options.emit_debug_info) debug_emit_loc(x);
         if (x.m_return_var) {
             start_new_block(proc_return);
+            write_back_scalar_dummies();
             llvm_symtab_finalizer.finalize_symtab(x.m_symtab);
             finalize_list_call_arg_allocas();
             free_heap_fixed_size_arrays();
@@ -12812,6 +12881,7 @@ public:
             builder->CreateRet(ret_val2);
         } else {
             start_new_block(proc_return);
+            write_back_scalar_dummies();
             llvm_symtab_finalizer.finalize_symtab(x.m_symtab);
             finalize_list_call_arg_allocas();
             free_heap_fixed_size_arrays();
