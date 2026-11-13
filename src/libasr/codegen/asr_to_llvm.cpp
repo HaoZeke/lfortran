@@ -27755,9 +27755,13 @@ public:
                                     value = convert_class_to_type(x.m_args[i].m_value, nullptr,
                                         orig_arg->m_type_declaration, orig_arg->m_type, value);
                                 } else if (!ASRUtils::is_class_type(ASRUtils::type_get_past_allocatable(orig_arg->m_type))) {
+                                    // An unallocated allocatable passed to an
+                                    // optional dummy is absent. Allocating it
+                                    // here would make present() true.
                                     if (!ASRUtils::is_array(ASRUtils::expr_type(x.m_args[i].m_value))
                                             && (ASRUtils::is_allocatable(x.m_args[i].m_value)
-                                                || ASRUtils::is_pointer(ASRUtils::expr_type(x.m_args[i].m_value)))) {
+                                                || ASRUtils::is_pointer(ASRUtils::expr_type(x.m_args[i].m_value)))
+                                            && orig_arg->m_presence != ASR::presenceType::Optional) {
                                         check_and_allocate_scalar(x.m_args[i].m_value);
                                     }
                                     bool skip_load_for_fixed_size_array =
