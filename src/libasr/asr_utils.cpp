@@ -9916,6 +9916,10 @@ ASR::expr_t* get_minimum_value_with_given_type(Allocator& al, ASR::ttype_t* asr_
                 v.bytes[15] = 0xFF;
                 return ASRUtils::make_RealConstant_r16(al, asr_type->base.loc, v, asr_type);
             }
+            if (kind == 10) {
+                return ASRUtils::make_RealConstant_r10(al, asr_type->base.loc,
+                    std::numeric_limits<long double>::lowest(), asr_type);
+            }
             double val;
             switch (kind) {
                 case 4: val = std::numeric_limits<float>::lowest(); break;
@@ -9966,6 +9970,10 @@ ASR::expr_t* get_maximum_value_with_given_type(Allocator& al, ASR::ttype_t* asr_
                 v.bytes[14] = 0xFE;
                 v.bytes[15] = 0x7F;
                 return ASRUtils::make_RealConstant_r16(al, asr_type->base.loc, v, asr_type);
+            }
+            if (kind == 10) {
+                return ASRUtils::make_RealConstant_r10(al, asr_type->base.loc,
+                    std::numeric_limits<long double>::max(), asr_type);
             }
             double val;
             switch (kind) {
