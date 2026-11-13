@@ -20293,7 +20293,12 @@ public:
         // Create <n x float> type, where `n` is the length of the `x` constant array
         int64_t simd_n = ASRUtils::get_fixed_size_of_array(x.m_type);
         llvm::Type* type_fxn = nullptr;
-        if (ASR::is_a<ASR::StructType_t>(*x_m_type)) {
+        bool real10 = ASR::is_a<ASR::Real_t>(*x_m_type) &&
+            ASR::down_cast<ASR::Real_t>(x_m_type)->m_kind == 10;
+        bool complex10 = ASR::is_a<ASR::Complex_t>(*x_m_type) &&
+            ASR::down_cast<ASR::Complex_t>(x_m_type)->m_kind == 10;
+        if (ASR::is_a<ASR::StructType_t>(*x_m_type) || real10 || complex10) {
+            // x86_fp80 is not a vector element type.
             type_fxn = llvm::ArrayType::get(el_type, simd_n > 0 ? simd_n : 0);
         } else if (simd_n <= 0) {
             type_fxn = llvm::ArrayType::get(el_type, 0);
@@ -20428,6 +20433,14 @@ public:
 
     void visit_ArrayConstructor(const ASR::ArrayConstructor_t &x) {
         visit_ArrayConstructorUtil(x);
+    }
+
+    void visit_ImpliedDoLoop(const ASR::ImpliedDoLoop_t &x) {
+        if (x.m_value) {
+            this->visit_expr_wrapper(x.m_value, true);
+            return;
+        }
+        throw CodeGenError("visit_ImpliedDoLoop() not implemented", x.base.base.loc);
     }
 
     void visit_ArrayConstant(const ASR::ArrayConstant_t &x) {

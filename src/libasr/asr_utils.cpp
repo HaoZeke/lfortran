@@ -13766,8 +13766,9 @@ ASR::asr_t* make_ArrayConstructor_t_util(Allocator &al, const Location &a_loc,
         if (ASRUtils::is_array(elt_type)) {
             elt_type = ASR::down_cast<ASR::Array_t>(elt_type)->m_type;
         }
+        int elt_kind = ASRUtils::extract_kind_from_ttype_t(elt_type);
         if ((ASRUtils::is_real(*elt_type) || ASRUtils::is_complex(*elt_type)) &&
-            ASRUtils::extract_kind_from_ttype_t(elt_type) == 16) {
+            (elt_kind == 16 || elt_kind == 10)) {
             all_expr_evaluated = false;
         }
     }

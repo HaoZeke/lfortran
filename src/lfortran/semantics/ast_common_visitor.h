@@ -367,7 +367,16 @@ class ImpliedDoLoopValuesVisitor : public ASR::BaseWalkVisitor<ImpliedDoLoopValu
     }
 
     void visit_RealConstant(const ASR::RealConstant_t &x) {
-        value = ASRUtils::EXPR(ASR::make_RealConstant_t(al, x.base.base.loc, x.m_r, x.m_type));
+        int kind = ASRUtils::extract_kind_from_ttype_t(x.m_type);
+        if (kind == 16) {
+            value = ASRUtils::make_RealConstant_r16(al, x.base.base.loc,
+                ASRUtils::real_constant_get_r16(&x), x.m_type);
+        } else if (kind == 10) {
+            value = ASRUtils::make_RealConstant_r10(al, x.base.base.loc,
+                ASRUtils::real_constant_get_r10(&x), x.m_type);
+        } else {
+            value = ASRUtils::EXPR(ASR::make_RealConstant_t(al, x.base.base.loc, x.m_r, x.m_type));
+        }
     }
 
     void visit_RealUnaryMinus(const ASR::RealUnaryMinus_t &x) {
@@ -18466,9 +18475,9 @@ public:
             } else {
                 n_elements += 1;
             }
-            // The data of a constant array holds no real(16) or complex(16)
-            // elements: such a constant array, and a real(16) or complex(16)
-            // implied do loop evaluated at compile time, are an
+            // The data of a constant array holds no real(16), real(10) or
+            // complex(16) elements: such a constant array, and an implied do
+            // loop of those kinds evaluated at compile time, are an
             // ArrayConstructor of the constant elements, which stands for
             // the array in a larger one.
             std::function<bool(ASR::expr_t*)> push_constant_elements =
@@ -18490,8 +18499,9 @@ public:
                 }
                 ASR::ArrayConstructor_t* values = ASR::down_cast<ASR::ArrayConstructor_t>(element_value);
                 ASR::ttype_t* values_type = ASRUtils::extract_type(values->m_type);
+                int values_kind = ASRUtils::extract_kind_from_ttype_t(values_type);
                 if (!(ASRUtils::is_real(*values_type) || ASRUtils::is_complex(*values_type)) ||
-                        ASRUtils::extract_kind_from_ttype_t(values_type) != 16) {
+                        (values_kind != 16 && values_kind != 10)) {
                     return false;
                 }
                 for (size_t k = 0; k < values->n_args; k++) {
@@ -25745,13 +25755,16 @@ public:
         try {
             if constexpr (std::is_same_v<T, ASR::expr_t*>) {
                 ASR::ttype_t* element_type = ASRUtils::extract_type(ASRUtils::expr_type(expr));
-                if (ASRUtils::is_real(*element_type) &&
-                        ASRUtils::extract_kind_from_ttype_t(element_type) == 16) {
-                    // A real(16) value is kept as the constant it evaluates to.
+                int kind = ASRUtils::extract_kind_from_ttype_t(element_type);
+                if ((ASRUtils::is_real(*element_type) || ASRUtils::is_complex(*element_type)) &&
+                        (kind == 16 || kind == 10)) {
+                    // A real(16) or real(10) value does not fit in the
+                    // array-constant buffer, so it is kept as the constant
+                    // it evaluates to.
                     visitor.value = nullptr;
                     visitor.visit_expr(*expr);
                     if (visitor.value == nullptr ||
-                            !ASR::is_a<ASR::RealConstant_t>(*visitor.value)) {
+                            !ASRUtils::is_value_constant(visitor.value)) {
                         idl_not_evaluated = true;
                         return nullptr;
                     }
@@ -26016,10 +26029,12 @@ public:
         }
         // check compiletime evaluation possibility
         bool is_compiletime = is_compiletime_implied_do_loop(idl, loop_vars);
-        // The data of a constant array holds no real(16) or complex(16)
-        // elements: the values of such a loop are kept as constant elements.
+        // The data of a constant array holds no real(16), real(10) or
+        // complex(16) elements: the values of such a loop are kept as
+        // constant elements.
         bool is_kind16_loop = (ASRUtils::is_real(*type) || ASRUtils::is_complex(*type)) &&
-                ASRUtils::extract_kind_from_ttype_t(type) == 16;
+                (ASRUtils::extract_kind_from_ttype_t(type) == 16 ||
+                 ASRUtils::extract_kind_from_ttype_t(type) == 10);
 
         if (is_compiletime && idl_nesting_level == 1) {
             std::vector<int64_t> loop_indices; // fill it with all zero
