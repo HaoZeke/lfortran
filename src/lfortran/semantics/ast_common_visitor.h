@@ -26447,13 +26447,17 @@ public:
         if (!implicit_call_done && ( ASR::is_a<ASR::Variable_t>(*v) || is_external_procedure ) && !not_resolvable_to_fncall) {
             bool is_v_dummy_arg = ASR::is_a<ASR::Variable_t>(*v) &&
                 ASRUtils::is_arg_dummy(ASR::down_cast<ASR::Variable_t>(v)->m_intent);
+            // A procedure pointer keeps its name even when that name is also
+            // an intrinsic. The reference calls the pointer.
+            bool is_procedure_variable = ASR::is_a<ASR::Variable_t>(*v) &&
+                ASRUtils::is_symbol_procedure_variable(v);
             ASR::symbol_t *parent_sym = current_scope->parent
                 ? current_scope->parent->resolve_symbol(var_name) : nullptr;
             bool user_function_found = parent_sym &&
                 ASR::is_a<ASR::Function_t>(
                     *ASRUtils::symbol_get_past_external(parent_sym)) &&
                 !ASRUtils::is_intrinsic_symbol(parent_sym);
-            if (!is_v_dummy_arg && !user_function_found &&
+            if (!is_v_dummy_arg && !user_function_found && !is_procedure_variable &&
                     (intrinsic_procedures.is_intrinsic(var_name) ||
                     is_intrinsic_registry_function(var_name))) {
                 if (compiler_options.implicit_interface) {
