@@ -10762,6 +10762,19 @@ public:
             ADD_ASR_DEPENDENCIES(current_scope, final_sym, current_function_dependencies);
         }
         ASRUtils::insert_module_dependency(final_sym, al, current_module_dependencies);
+        // A type-bound generic resolves to the binding, not the procedure.
+        // The binding's procedure still has the optional dummies, and an
+        // absent one has to be a null argument of the call.
+        if (f == nullptr && final_sym != nullptr) {
+            ASR::symbol_t* resolved = ASRUtils::symbol_get_past_external(final_sym);
+            if (ASR::is_a<ASR::StructMethodDeclaration_t>(*resolved)) {
+                ASR::symbol_t* proc = ASRUtils::symbol_get_past_external(
+                    ASR::down_cast<ASR::StructMethodDeclaration_t>(resolved)->m_proc);
+                if (proc != nullptr && ASR::is_a<ASR::Function_t>(*proc)) {
+                    f = ASR::down_cast<ASR::Function_t>(proc);
+                }
+            }
+        }
         // If the call goes through a FunctionPointerCast temp, type-check
         // against the cast target interface so the call agrees with its callee.
         if (ASR::is_a<ASR::Variable_t>(*final_sym)) {
