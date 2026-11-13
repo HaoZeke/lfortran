@@ -270,7 +270,11 @@ class SymbolRenameVisitor: public ASR::BaseWalkVisitor<SymbolRenameVisitor> {
             if ((ASRUtils::is_external_procedure_interface(f_type)
                     || global_definition)
                     && f_type->m_abi != ASR::abiType::BindC) {
-                std::string name = x.m_name;
+                // A specific procedure that shares its generic's name is stored
+                // as `name~genericprocedure`. The call and the global
+                // definition have to use the same GFortran name, `name_`.
+                std::string name = ASRUtils::strip_genericprocedure_suffix(
+                    x.m_name);
                 // Compiler-generated symbols, not user procedures. A name
                 // such as `__lfortran_coarray_init` or `__module_prif_prif_init`
                 // is the one the runtime and m_global_init look up, so a
