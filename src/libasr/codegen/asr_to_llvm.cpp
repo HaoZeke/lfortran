@@ -26918,20 +26918,10 @@ public:
 
             if( x.m_args[i].m_value == nullptr ) {
                 LCOMPILERS_ASSERT(orig_arg != nullptr);
-                // An absent optional is a null pointer of the callee's
-                // argument type. present(), allocated() and associated()
-                // test that pointer. The callee's signature is the type
-                // that must be passed: a character data pointer, a
-                // descriptor, or a pointer to one of those.
-                if (ASR::is_a<ASR::Function_t>(*func_subrout)) {
-                    std::vector<llvm::Type*> sig = llvm_utils->convert_args(
-                        *ASR::down_cast<ASR::Function_t>(func_subrout), module.get());
-                    if (i < sig.size() && sig[i]->isPointerTy()) {
-                        args.push_back(llvm::ConstantPointerNull::get(
-                            llvm::cast<llvm::PointerType>(sig[i])));
-                        continue;
-                    }
-                }
+                // An absent optional is a null pointer of this argument's
+                // type. The function signature may list a character result
+                // first, so the argument's position there is not `i`. A
+                // character dummy with a hidden length is the data pointer.
                 if (pass_string_data) {
                     args.push_back(llvm::ConstantPointerNull::get(
                         llvm_utils->character_type));
