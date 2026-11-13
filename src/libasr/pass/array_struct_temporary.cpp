@@ -2356,22 +2356,127 @@ void add_elementwise_call_arguments_read_in_place(ASR::expr_t* value,
     }
 }
 
+// A section `a(1:2, j)` or `ffc(1:2, fsymsign(l, m))`: the leading
+// dimension, which is the contiguous one of a contiguous array, is a
+// triplet whose bounds and step are compile-time constants, and every
+// other subscript is a scalar. array_op then addresses each element from
+// the parent array. A temporary section descriptor would be rebuilt on
+// every evaluation, and those stores keep the parent's stride loads in
+// the loop.
+static bool is_compile_time_integer(ASR::expr_t* expr) {
+    if (expr == nullptr) {
+        return false;
+    }
+    int64_t value = 0;
+    return ASRUtils::extract_value(ASRUtils::expr_value(expr), value);
+}
+
+// A scalar integer subscript that can be used directly as an element
+// index: a variable, a constant, arithmetic on those, or an element of an
+// integer array (`fsymsign(l, m)`). Not a triplet and not an impure call.
+static bool is_direct_scalar_subscript(ASR::expr_t* expr) {
+    if (expr == nullptr ||
+            !ASR::is_a<ASR::Integer_t>(*ASRUtils::expr_type(expr)) ||
+            ASRUtils::extract_kind_from_ttype_t(ASRUtils::expr_type(expr)) > 8) {
+        return false;
+    }
+    switch (expr->type) {
+        case ASR::exprType::IntegerConstant: {
+            return true;
+        }
+        case ASR::exprType::Var: {
+            return ASR::is_a<ASR::Variable_t>(*ASRUtils::symbol_get_past_external(
+                ASR::down_cast<ASR::Var_t>(expr)->m_v));
+        }
+        case ASR::exprType::IntegerBinOp: {
+            ASR::IntegerBinOp_t* binop = ASR::down_cast<ASR::IntegerBinOp_t>(expr);
+            return is_direct_scalar_subscript(binop->m_left) &&
+                is_direct_scalar_subscript(binop->m_right);
+        }
+        case ASR::exprType::IntegerUnaryMinus: {
+            return is_direct_scalar_subscript(
+                ASR::down_cast<ASR::IntegerUnaryMinus_t>(expr)->m_arg);
+        }
+        case ASR::exprType::Cast: {
+            ASR::Cast_t* cast = ASR::down_cast<ASR::Cast_t>(expr);
+            return cast->m_kind == ASR::cast_kindType::IntegerToInteger &&
+                is_direct_scalar_subscript(cast->m_arg);
+        }
+        case ASR::exprType::ArrayItem: {
+            ASR::ArrayItem_t* item = ASR::down_cast<ASR::ArrayItem_t>(expr);
+            if (ASRUtils::is_array(item->m_type)) {
+                return false;
+            }
+            for (size_t i = 0; i < item->n_args; i++) {
+                ASR::array_index_t& index = item->m_args[i];
+                if (index.m_left != nullptr || index.m_step != nullptr ||
+                        !is_direct_scalar_subscript(index.m_right)) {
+                    return false;
+                }
+            }
+            return item->n_args > 0;
+        }
+        default: {
+            return PassUtils::is_reevaluable_integer_expr(expr);
+        }
+    }
+}
+
+static bool is_constant_leading_section(ASR::expr_t* value) {
+    value = ASRUtils::get_past_array_physical_cast(value);
+    if (!ASR::is_a<ASR::ArraySection_t>(*value) ||
+            !ASRUtils::ElementwiseReduction::is_designator(value) ||
+            ASRUtils::is_simd_array(value)) {
+        return false;
+    }
+    ASR::ArraySection_t* section = ASR::down_cast<ASR::ArraySection_t>(value);
+    if (section->n_args == 0) {
+        return false;
+    }
+    ASR::array_index_t& leading = section->m_args[0];
+    int64_t step = 1;
+    if (leading.m_left == nullptr || leading.m_right == nullptr ||
+            !is_compile_time_integer(leading.m_left) ||
+            !is_compile_time_integer(leading.m_right) ||
+            (leading.m_step != nullptr &&
+                !(ASRUtils::extract_value(ASRUtils::expr_value(leading.m_step), step) &&
+                    step != 0))) {
+        return false;
+    }
+    for (size_t i = 1; i < section->n_args; i++) {
+        ASR::array_index_t& index = section->m_args[i];
+        if (index.m_left != nullptr || index.m_step != nullptr ||
+                !is_direct_scalar_subscript(index.m_right)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 // Collects the sections and the elementwise operations of the value of an
 // assignment that reads its target in place (see reads_target_only_in_place),
 // so that they are read element by element instead of being copied. A
 // disjoint whole-array operation still prepares its own arguments normally.
 void get_assignment_sections_read_in_place(ASR::expr_t* value,
         std::set<ASR::expr_t*>& sections, std::set<ASR::expr_t*>& operations) {
-    // Keep rank-one sections on the existing descriptor path, which can
-    // expose contiguous columns more effectively than direct strided indexing.
+    // A rank-one section of the contiguous dimension with constant bounds is
+    // indexed through its parent, like a higher-rank section. Building a
+    // descriptor for it puts that descriptor's stores inside the loop.
     bool keep_sections = ASRUtils::extract_n_dims_from_ttype(
-        ASRUtils::expr_type(value)) >= 2;
+            ASRUtils::expr_type(value)) >= 2 ||
+        is_constant_leading_section(value);
     value = ASRUtils::get_past_array_physical_cast(value);
     if (ASR::is_a<ASR::ArraySection_t>(*value)) {
         std::set<ASR::expr_t*> found_sections;
         get_elementwise_sections_read_in_place(value, found_sections, operations);
         if (keep_sections) {
             sections.insert(found_sections.begin(), found_sections.end());
+        }
+        // `ffc(1:2, fsymsign(l, m))` is rejected above because the
+        // subscript is an array element, which is not reevaluable. Its
+        // leading bounds are still constant, so index it through `ffc`.
+        if (is_constant_leading_section(value)) {
+            sections.insert(value);
         }
         return;
     }

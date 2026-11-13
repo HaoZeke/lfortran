@@ -703,7 +703,8 @@ namespace LCompilers {
                 }
             }
             llvm::Value* target_offset = cmo_convertor_single_element(
-                value_type_llvm, value_desc, section_first_indices, value_rank, false, lm);
+                value_type_llvm, value_desc, section_first_indices, value_rank, false, lm,
+                "", "", {0, 0}, ASRUtils::is_allocatable(value_type));
 
             if(ASRUtils::is_character(*value_type)){
                 LCOMPILERS_ASSERT_MSG(ASRUtils::is_descriptorString(value_type),
@@ -923,7 +924,8 @@ namespace LCompilers {
 
         llvm::Value* SimpleCMODescriptor::cmo_convertor_single_element(
             llvm::Type* type, llvm::Value* arr, std::vector<llvm::Value*>& m_args,
-            int n_args, bool check_for_bounds, LocationManager& lm, std::string array_name, std::string infile, Location loc) {
+            int n_args, bool check_for_bounds, LocationManager& lm, std::string array_name, std::string infile, Location loc,
+            bool unit_stride_dim0) {
             unsigned index_bit_width = index_type->getIntegerBitWidth();
             llvm::Value* dim_des_arr_ptr = get_pointer_to_dimension_descriptor_array(type, arr);
             llvm::Value* idx = llvm::ConstantInt::get(context, llvm::APInt(index_bit_width, 0));
@@ -962,7 +964,12 @@ namespace LCompilers {
                                                      lval,
                                                      ubound);
                 }
-                llvm::Value* stride = llvm_utils->CreateLoad2(index_type, llvm_utils->create_gep2(dim_des, dim_des_ptr, DIM_STRIDE));
+                // An allocatable is contiguous, so the fastest dimension is
+                // one element wide. A pointer or an assumed-shape array is
+                // not, and still loads the stride stored in its descriptor.
+                llvm::Value* stride = (unit_stride_dim0 && r == 0)
+                    ? llvm::ConstantInt::get(index_type, 1)
+                    : llvm_utils->CreateLoad2(index_type, llvm_utils->create_gep2(dim_des, dim_des_ptr, DIM_STRIDE));
                 idx = builder->CreateAdd(idx, builder->CreateMul(stride, curr_llvm_idx));
             }
             llvm::Value* offset_val = this->get_offset(type, arr);
@@ -1057,7 +1064,8 @@ namespace LCompilers {
             } else {
                 llvm::Type* array_type = llvm_utils->get_type_from_ttype_t_util(
                     expr, ASRUtils::type_get_past_allocatable_pointer(asr_type), llvm_utils->module);
-                idx = cmo_convertor_single_element(array_type, array, m_args, n_args, check_for_bounds, lm, array_name, infile, expr->base.loc);
+                idx = cmo_convertor_single_element(array_type, array, m_args, n_args, check_for_bounds, lm, array_name, infile, expr->base.loc,
+                    ASRUtils::is_allocatable(asr_type));
                 llvm::Value* ptr_to_data_ptr = get_pointer_to_data(
                     expr, ASRUtils::type_get_past_allocatable_pointer(asr_type), array, llvm_utils->module);
                 llvm::Value* full_array = nullptr;

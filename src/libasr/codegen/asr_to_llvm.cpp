@@ -11138,11 +11138,16 @@ public:
     // dummies_may_be_noalias holds get TBAA metadata with two main classes of
     // memory, so that LLVM knows that a store to an array element does not
     // change array descriptors or the pointers that lead to them:
-    // - "descriptor": the fields of array descriptors and the pointers
-    //   stored in structs (the descriptor or data pointers of allocatable
-    //   and pointer components, class wrappers, string descriptors). This
-    //   memory is accessed only by code the compiler generates for the
-    //   pointer or the descriptor.
+    // - "global descriptor": the fields of a descriptor that is a global
+    //   (a SAVE or module allocatable or pointer) and the pointer global
+    //   that addresses it. A loop that only writes array elements and
+    //   temporary descriptors does not change these fields, so LICM can
+    //   hoist them.
+    // - "local descriptor": the fields of every other descriptor (a dummy,
+    //   an alloca, a temporary built for an array section) and a copy of a
+    //   whole descriptor. A section temporary is rebuilt on every iteration,
+    //   so its fields stay in the loop, and they do not alias the global
+    //   descriptor of a saved allocatable.
     // - "data": the elements of arrays (and parts of complex elements),
     //   reached through the base address in an array descriptor.
     //   ASR-proven numeric components of non-TARGET, nonpointer CLASS
@@ -11402,16 +11407,51 @@ public:
             last_selected_field(*field_gep, field)) && field == 0;
     }
 
+    // The object a descriptor field access starts from: the global, the
+    // load of a pointer global, an alloca or a phi.
+    static llvm::Value* descriptor_access_base(llvm::Value *ptr) {
+        ptr = ptr->stripPointerCasts();
+        while (llvm::GEPOperator *gep = llvm::dyn_cast<llvm::GEPOperator>(ptr)) {
+            ptr = gep->getPointerOperand()->stripPointerCasts();
+        }
+        return ptr;
+    }
+
+    // A descriptor that lives in a global, including a field reached
+    // through the pointer global that holds the descriptor's address.
+    // Anything else (a dummy, a temporary, a phi of those) is local.
+    bool is_saved_descriptor_access(llvm::Value *ptr) {
+        llvm::Value *base = descriptor_access_base(ptr);
+        if (llvm::isa<llvm::GlobalVariable>(base)) {
+            return true;
+        }
+        llvm::LoadInst *load = llvm::dyn_cast<llvm::LoadInst>(base);
+        if (load == nullptr) {
+            return false;
+        }
+        llvm::Value *src = descriptor_access_base(load->getPointerOperand());
+        return llvm::isa<llvm::GlobalVariable>(src) ||
+            descriptor_pointer_globals.find(src) != descriptor_pointer_globals.end();
+    }
+
     // The TBAA access tag of a simple load or store of `type` at `ptr`:
-    // `descriptor` for a field of an array or dimension descriptor and for
-    // a pointer in a struct, `data` for an array element that is not a
-    // byte (bytes can be used to copy any storage), nullptr otherwise.
+    // `global_descriptor` or `local_descriptor` for a field of an array or
+    // dimension descriptor, for a pointer in a struct and for a whole
+    // descriptor copied as an aggregate, `data` for an array element that
+    // is not a byte (bytes can be used to copy any storage), nullptr otherwise.
     llvm::MDNode* tbaa_access_tag(llvm::Value *ptr, llvm::Type *type,
-            llvm::MDNode *descriptor, llvm::MDNode *data,
+            llvm::MDNode *global_descriptor, llvm::MDNode *local_descriptor,
+            llvm::MDNode *data,
             llvm::MDNode *inline_component, llvm::MDNode *allocated_component) {
+        bool descriptor_aggregate = type->isStructTy() &&
+            arr_descr->is_array_descriptor_type(type);
         if (!type->isIntegerTy() && !type->isFloatingPointTy() &&
-                !type->isPointerTy()) {
+                !type->isPointerTy() && !descriptor_aggregate) {
             return nullptr;
+        }
+        if (descriptor_aggregate) {
+            return is_saved_descriptor_access(ptr) ? global_descriptor
+                                                   : local_descriptor;
         }
         if (!type->isPointerTy() && !type->isIntegerTy(8)) {
             if (inline_component_data.count(ptr)) {
@@ -11423,7 +11463,7 @@ public:
         }
         if (type->isPointerTy() && descriptor_pointer_globals.find(
                 ptr->stripPointerCasts()) != descriptor_pointer_globals.end()) {
-            return descriptor;
+            return global_descriptor;
         }
         if (llvm::GEPOperator *gep = llvm::dyn_cast<llvm::GEPOperator>(ptr)) {
             uint64_t field = 0;
@@ -11431,7 +11471,8 @@ public:
             if (st != nullptr && (type->isPointerTy() ||
                     arr_descr->is_array_descriptor_type(st) ||
                     st == arr_descr->get_dimension_descriptor_type())) {
-                return descriptor;
+                return is_saved_descriptor_access(ptr) ? global_descriptor
+                                                       : local_descriptor;
             }
         }
         if (!type->isPointerTy() && !type->isIntegerTy(8) &&
@@ -11480,15 +11521,21 @@ public:
         }
         llvm::MDBuilder mdb(context);
         llvm::MDNode *root = mdb.createTBAARoot("LFortran TBAA");
-        llvm::MDNode *descriptor_type = mdb.createTBAAScalarTypeNode(
-            "descriptor", root);
+        // Siblings, not parent and child: a store to a temporary descriptor
+        // must not alias a load of a saved allocatable's descriptor.
+        llvm::MDNode *global_descriptor_type = mdb.createTBAAScalarTypeNode(
+            "global descriptor", root);
+        llvm::MDNode *local_descriptor_type = mdb.createTBAAScalarTypeNode(
+            "local descriptor", root);
         llvm::MDNode *data_type = mdb.createTBAAScalarTypeNode("data", root);
         llvm::MDNode *inline_component_type = mdb.createTBAAScalarTypeNode(
             "inline component", data_type);
         llvm::MDNode *allocated_component_type = mdb.createTBAAScalarTypeNode(
             "allocated component", data_type);
-        llvm::MDNode *descriptor = mdb.createTBAAStructTagNode(
-            descriptor_type, descriptor_type, 0);
+        llvm::MDNode *global_descriptor = mdb.createTBAAStructTagNode(
+            global_descriptor_type, global_descriptor_type, 0);
+        llvm::MDNode *local_descriptor = mdb.createTBAAStructTagNode(
+            local_descriptor_type, local_descriptor_type, 0);
         llvm::MDNode *data = mdb.createTBAAStructTagNode(
             data_type, data_type, 0);
         llvm::MDNode *inline_component = mdb.createTBAAStructTagNode(
@@ -11505,7 +11552,8 @@ public:
                     if (llvm::LoadInst *load = llvm::dyn_cast<llvm::LoadInst>(&I)) {
                         if (load->isSimple()) {
                             tag = tbaa_access_tag(load->getPointerOperand(),
-                                load->getType(), descriptor, data,
+                                load->getType(), global_descriptor,
+                                local_descriptor, data,
                                 inline_component, allocated_component);
                         }
                     } else if (llvm::StoreInst *store =
@@ -11513,8 +11561,8 @@ public:
                         if (store->isSimple()) {
                             tag = tbaa_access_tag(store->getPointerOperand(),
                                 store->getValueOperand()->getType(),
-                                descriptor, data, inline_component,
-                                allocated_component);
+                                global_descriptor, local_descriptor, data,
+                                inline_component, allocated_component);
                         }
                     }
                     if (tag != nullptr) {

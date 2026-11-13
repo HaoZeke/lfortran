@@ -458,7 +458,8 @@ namespace LCompilers {
 
                 llvm::Value* cmo_convertor_single_element(
                     llvm::Type* type, llvm::Value* arr, std::vector<llvm::Value*>& m_args,
-                    int n_args, bool check_for_bounds, LocationManager& lm, std::string array_name = "", std::string infile = "", Location loc = {0, 0});
+                    int n_args, bool check_for_bounds, LocationManager& lm, std::string array_name = "", std::string infile = "", Location loc = {0, 0},
+                    bool unit_stride_dim0 = false);
 
                 llvm::Value* cmo_convertor_single_element_data_only(
                     llvm::Value** llvm_diminfo, std::vector<llvm::Value*>& m_args,
