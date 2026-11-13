@@ -311,15 +311,25 @@ def summarize(samples: list[float]) -> dict:
     }
 
 
-def _note_nfev(note: str) -> int | None:
-    """Pull nfev=N out of a check note. 0 means the timed call did no work."""
+# First match wins. Longer names are listed before `n` so `nfev=` is not read as `n=`.
+_WORK_KEYS = ("nfev", "neval", "nfg", "niter", "nfe", "nst", "n")
+
+
+def _note_work(note: str) -> tuple[str, int] | None:
+    """Pull a work count out of a check note. 0 means the call did no work."""
+    found: dict[str, int] = {}
     for part in note.replace(",", " ").split():
-        if part.startswith("nfev="):
-            try:
-                nfev = int(part.split("=", 1)[1])
-            except ValueError:
-                return None
-            return nfev or None
+        key, sep, val = part.partition("=")
+        if sep != "=" or key not in _WORK_KEYS:
+            continue
+        try:
+            found[key] = int(val)
+        except ValueError:
+            continue
+    for key in _WORK_KEYS:
+        count = found.get(key)
+        if count:
+            return key, count
     return None
 
 
@@ -394,10 +404,12 @@ def make_cases(module):
 
     def check_splrep():
         got = splrep()
-        if got["ier"] > 0:
-            raise AssertionError(f"splrep ier={got['ier']} fp={got['fp']}")
-        if got["n"] < 2 * k + 2:
-            raise AssertionError(f"splrep n={got['n']}")
+        # s = 0 asks for the interpolating spline: ier -1, fp 0, and one
+        # knot past every sample. ier 0 with a short knot set is a different,
+        # cheaper path and must not pass.
+        if got["ier"] != -1 or got["n"] != m + k + 1 or abs(got["fp"]) > 1e-8:
+            raise AssertionError(
+                f"splrep ier={got['ier']} n={got['n']} fp={got['fp']}")
         return f"ier={got['ier']} n={got['n']} fp={got['fp']:.3e}"
 
     def splev():
@@ -475,7 +487,9 @@ def make_cases(module):
         result, abserr, neval, ier = dqags()
         # nrep integrals of 1/sqrt(x) on (0, 1), each equal to 2.
         err = abs(result / nrep_q - 2.0)
-        if ier != 0 or err > 1e-8:
+        # This integrand takes 231 evaluations per integral. A run that
+        # returns 2 with a handful of samples is not the same quadrature.
+        if ier != 0 or err > 1e-8 or neval != nrep_q * 231:
             raise AssertionError(
                 f"dqags ier={ier} mean={result / nrep_q} abserr={abserr} neval={neval}")
         return f"ier={ier} err={err:.3e} neval={neval}"
@@ -488,7 +502,9 @@ def make_cases(module):
 
     def check_setulb():
         f, nfg, info = setulb()
-        if info != 0 or f > 1e-2:
+        # factr 1e7 stops near the Rosenbrock minimum, which is below 1e-8
+        # here. info 0 with f = 1e-3 is an early CONV and must not pass.
+        if info != 0 or f > 1e-6 or nfg < 1000:
             raise AssertionError(f"setulb info={info} f={f} nfg={nfg}")
         return f"info={info} f={f:.3e} nfg={nfg}"
 
@@ -504,7 +520,8 @@ def make_cases(module):
     def check_dsaupd():
         evals, info, niter = dsaupd()
         err = float(np.max(np.abs(np.sort(evals) - lam)))
-        if info != 0 or err > 1e-6:
+        # A handful of Arnoldi steps cannot land on these eigenvalues.
+        if info != 0 or err > 1e-8 or niter < 200:
             raise AssertionError(
                 f"dsaupd info={info} niter={niter} max_abs_err={err} evals={evals}")
         return f"info={info} niter={niter} max_abs_err={err:.3e}"
@@ -514,17 +531,22 @@ def make_cases(module):
     nrep_ode = 40
 
     def lsoda():
-        y1, y2, y3, istate = module.bench_lsoda(nrep_ode)
-        return float(y1), float(y2), float(y3), int(istate)
+        y1, y2, y3, istate, nst, nfe = module.bench_lsoda(nrep_ode)
+        return (float(y1), float(y2), float(y3), int(istate), int(nst), int(nfe))
 
     def check_lsoda():
-        y1, y2, y3, istate = lsoda()
-        if istate != 2:
-            raise AssertionError(f"lsoda istate={istate} y=({y1}, {y2}, {y3})")
+        y1, y2, y3, istate, nst, nfe = lsoda()
+        # One shot of Robertson to 1e4 takes hundreds of steps. istate 2
+        # with the initial state, or with almost no evaluations, is not it.
+        if istate != 2 or nfe < nrep_ode * 50:
+            raise AssertionError(
+                f"lsoda istate={istate} nst={nst} nfe={nfe} y=({y1}, {y2}, {y3})")
         if abs(y1 - 0.10730007) > 1.0e-5 or abs(y3 - 0.89269945) > 1.0e-5 \
                 or abs(y2 - 4.80015e-7) > 1.0e-9:
-            raise AssertionError(f"lsoda y=({y1}, {y2}, {y3})")
-        return f"istate={istate} y1={y1:.6e} y2={y2:.3e} y3={y3:.6e}"
+            raise AssertionError(
+                f"lsoda istate={istate} nst={nst} nfe={nfe} y=({y1}, {y2}, {y3})")
+        return (f"istate={istate} nfe={nfe} nst={nst} "
+                f"y1={y1:.6e} y2={y2:.3e} y3={y3:.6e}")
 
     return {
         "triple_loop": (triple, check_triple),
@@ -781,14 +803,17 @@ def main() -> None:
                 slot.update(stats)
                 slot["check"] = notes[name]
                 slot["error"] = None
-                per_nfev = ""
-                nfev = _note_nfev(notes[name])
-                if nfev:
-                    sec = stats["median_s"] / nfev
-                    slot["sec_per_nfev"] = sec
-                    per_nfev = f"  {sec * 1e6:.2f}us/nfev"
+                per_work = ""
+                work = _note_work(notes[name])
+                if work:
+                    key, count = work
+                    sec = stats["median_s"] / count
+                    slot["work_key"] = key
+                    slot["work_count"] = count
+                    slot["sec_per_work"] = sec
+                    per_work = f"  {sec * 1e6:.3f}us/{key}"
                 print(
-                    f"  {name} median {stats['median_s']:.6f}s{per_nfev}  "
+                    f"  {name} median {stats['median_s']:.6f}s{per_work}  "
                     f"iqr {stats['iqr_s']:.6f}s  {notes[name]}",
                     flush=True)
 

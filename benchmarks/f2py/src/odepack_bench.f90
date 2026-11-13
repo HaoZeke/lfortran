@@ -1,8 +1,8 @@
-subroutine bench_lsoda(nrep, y1, y2, y3, istate)
+subroutine bench_lsoda(nrep, y1, y2, y3, istate, nst, nfe)
   implicit none
   integer, intent(in) :: nrep
   double precision, intent(out) :: y1, y2, y3
-  integer, intent(out) :: istate
+  integer, intent(out) :: istate, nst, nfe
   integer :: i, neq, itol, itask, iopt, jt, lrw, liw, rep
   double precision :: t, tout, rtol, atol
   double precision :: y(3), rwork(200)
@@ -21,6 +21,8 @@ subroutine bench_lsoda(nrep, y1, y2, y3, istate)
   y2 = 0.0d0
   y3 = 0.0d0
   istate = 0
+  nst = 0
+  nfe = 0
   do rep = 1, nrep
     y(1) = 1.0d0
     y(2) = 0.0d0
@@ -36,6 +38,8 @@ subroutine bench_lsoda(nrep, y1, y2, y3, istate)
     end do
     call lsoda(robertson, neq, y, t, tout, itol, rtol, atol, itask, &
         istate, iopt, rwork, lrw, iwork, liw, dummy_jac, jt)
+    nst = nst + iwork(11)
+    nfe = nfe + iwork(12)
     if (istate < 0) exit
   end do
   y1 = y(1)
