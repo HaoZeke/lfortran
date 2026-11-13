@@ -376,6 +376,12 @@ namespace LCompilers::CommandLineInterface {
         app.add_option("--march", compiler_options.march, "Generate code for the selected instruction-set architecture (`native` for the host)")->group(group_backend_codegen_options);
         app.add_option("--mcpu", compiler_options.mcpu, "Generate and tune code for the selected CPU (`native` for the host)")->group(group_backend_codegen_options);
         app.add_option("--mtune", compiler_options.mtune, "Tune code for the selected CPU without changing the instruction set (`native` for the host)")->group(group_backend_codegen_options);
+        app.add_option("--prefer-vector-width", compiler_options.prefer_vector_width,
+            "Preferred vector width in bits on x86-64 (128, 256, or 512). "
+            "Under --fast on an AVX-512 CPU the default is 256, matching "
+            "clang's icelake default. 512 keeps 512-bit operations.")
+            ->check(CLI::IsMember({"128", "256", "512"}))
+            ->group(group_backend_codegen_options);
         app.add_flag("--print-targets", opts.print_targets, "Print the registered targets")->group(group_backend_codegen_options);
         app.add_flag("--print-c-include-dir", opts.print_c_include_dir, "Print the directory containing ISO_Fortran_binding.h")->group(group_backend_codegen_options);
         app.add_flag("--wasm-html", compiler_options.wasm_html, "Generate HTML file using emscripten for LLVM->WASM")->group(group_backend_codegen_options);

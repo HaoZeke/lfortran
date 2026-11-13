@@ -9373,10 +9373,11 @@ end module
 #endif
 }
 
-// The 10-point tail of a 21-point Kronrod rule is an 8-wide abs reduction
-// next to indirect integrand calls. On AVX-512 the SLP vectorizer builds
-// that reduction with <8 x double>, and one zmm op slows the scalar calls
-// around it. gfortran keeps the sum in 256-bit vectors.
+// The 10-point tail of a 21-point Kronrod rule is an abs reduction next to
+// indirect integrand calls. prefer-vector-width=256 is the default under
+// --fast on AVX-512, and the loop vectorizer honors it. LLVM 11's SLP
+// horizontal reduction still builds <8 x double>, and that zmm op slows the
+// scalar calls around the tail. The lowered function must not keep it.
 TEST_CASE("Kronrod tail does not use 512-bit vectors") {
 #if LLVM_VERSION_MAJOR >= 11
     std::ifstream in(std::string(LFORTRAN_PROJECT_SOURCE_DIR)
@@ -9412,6 +9413,7 @@ TEST_CASE("Kronrod tail does not use 512-bit vectors") {
     llvm::raw_string_ostream os(ir);
     res.result->m_m->print(os, nullptr);
     os.flush();
+    CHECK(ir.find("\"prefer-vector-width\"=\"256\"") != std::string::npos);
     CHECK(ir.find("load <8 x double>") == std::string::npos);
     CHECK(ir.find("llvm.fabs.v8f64") == std::string::npos);
 #endif

@@ -226,6 +226,9 @@ struct CompilerOptions {
     std::string march = "";
     std::string mcpu = "";
     std::string mtune = "";
+    // Empty selects the default: 256 under --fast on an x86-64 AVX-512 CPU,
+    // and no preference otherwise. 128, 256, and 512 are the accepted widths.
+    std::string prefer_vector_width = "";
     std::string arg_o = "";
     bool emit_debug_info = false;
     bool enable_cpython = false;

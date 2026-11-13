@@ -663,9 +663,11 @@ void LLVMTargetConfig::apply_target_attributes(llvm::Module &module) const
             function.addFnAttr("target-features", features);
         }
         // 512-bit vectors lower the core frequency on Intel AVX-512 CPUs.
-        // gfortran -march=native keeps the 21-point Kronrod sum in ymm.
-        if (features.find("+avx512f") != std::string::npos) {
-            function.addFnAttr("prefer-vector-width", "256");
+        // clang's default for icelake is a 256-bit preference, and gfortran
+        // -march=native keeps the same class of loop in ymm.
+        if (prefer_vector_width != 0) {
+            function.addFnAttr("prefer-vector-width",
+                std::to_string(prefer_vector_width));
         }
         if (!tune_cpu.empty()) {
             function.addFnAttr("tune-cpu", tune_cpu);
@@ -770,6 +772,42 @@ std::string macos_platform_version(const std::string &triple) {
     return format_macos_version(major, minor, micro);
 }
 
+// CPUs whose LLVM model enables AVX-512. The model also requests a 256-bit
+// preferred width, but an explicit target-features string does not carry
+// that bit, so the driver selects it itself.
+static bool cpu_selects_avx512(const std::string &cpu) {
+    static const char *names[] = {
+        "knl", "knm", "skylake-avx512", "skx", "cascadelake", "cooperlake",
+        "cannonlake", "icelake-client", "icelake-server", "tigerlake",
+        "sapphirerapids", "graniterapids", "znver4",
+    };
+    for (const char *name : names) {
+        if (cpu == name) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static unsigned resolve_prefer_vector_width(const CompilerOptions &compiler_options,
+        const LLVMTargetConfig &config) {
+    const std::string &requested = compiler_options.prefer_vector_width;
+    if (!requested.empty()) {
+        if (requested == "128" || requested == "256" || requested == "512") {
+            return static_cast<unsigned>(std::stoul(requested));
+        }
+        throw LCompilersException(
+            "prefer-vector-width must be 128, 256, or 512");
+    }
+    llvm::Triple triple(config.triple);
+    bool avx512 = config.features.find("+avx512f") != std::string::npos
+        || cpu_selects_avx512(config.cpu);
+    if (config.fast && triple.getArch() == llvm::Triple::x86_64 && avx512) {
+        return 256;
+    }
+    return 0;
+}
+
 LLVMTargetConfig resolve_llvm_target_config(
     const CompilerOptions &compiler_options)
 {
@@ -844,6 +882,8 @@ LLVMTargetConfig resolve_llvm_target_config(
     }
 #endif
     config.features = join_features(features);
+    config.prefer_vector_width = resolve_prefer_vector_width(
+        compiler_options, config);
     std::unique_ptr<llvm::TargetMachine> machine
         = create_target_machine(config);
     config.data_layout
@@ -1521,9 +1561,11 @@ static bool calls_indirectly(const llvm::Function &fn) {
 
 static void narrow_8wide_doubles(llvm::Module &m) {
     for (llvm::Function &fn : m) {
-        // A pure vector kernel wants the 512-bit width. The slow case is a
-        // short widened reduction next to indirect scalar calls, as in
-        // dqk21: the zmm op drops the frequency for those calls too.
+        // The loop vectorizer honors prefer-vector-width. LLVM 11's SLP
+        // horizontal reduction does not: it builds an 8-wide vector and
+        // leaves the zmm op in place, which slows the scalar calls around
+        // a Kronrod tail. Rewrite that reduction when this routine calls
+        // through a procedure argument. A pure vector kernel is left alone.
         if (!fn.empty() && calls_indirectly(fn)) {
             narrow_8wide_doubles(fn);
         }
@@ -2007,7 +2049,12 @@ void LLVMEvaluator::opt(llvm::Module &m) {
     // calls scalar exp once per lane. glibc libmvec has the widened entry
     // points; use those instead.
     lower_vector_exp_to_libmvec(m);
-    narrow_8wide_doubles(m);
+    // 512 is an explicit request for the wide operations. Anything narrower
+    // still has to split the SLP reductions the attribute does not stop.
+    if (target_config.prefer_vector_width != 0
+            && target_config.prefer_vector_width <= 256) {
+        narrow_8wide_doubles(m);
+    }
     // String temporaries for an untaken STOP/WRITE are allocated on entry
     // and freed on the way out, with no other use. malloc_alloc is not a
     // recognized malloc, so the pair survives -O3. d1mach pays for that on

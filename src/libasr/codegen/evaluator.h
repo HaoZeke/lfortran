@@ -56,6 +56,10 @@ struct LLVMTargetConfig {
     // `--fast` without `--no-fast-math`: the backend may fuse a multiply and
     // an add into an FMA, like `-ffp-contract=fast` in clang and flang.
     bool fast_math = false;
+    // 0 leaves the target's own width. 128, 256, or 512 is written as the
+    // "prefer-vector-width" function attribute. Under --fast on x86-64
+    // AVX-512 the default is 256, which is what clang uses for icelake.
+    unsigned prefer_vector_width = 0;
 
     void apply_target_attributes(llvm::Module &module) const;
 };
