@@ -166,15 +166,10 @@ def fortran_sources(scipy: Path, kind: str) -> list[Path]:
         base = scipy / "scipy/odr/odrpack"
         return [base / name for name in names]
     if kind == "id_dist":
-        # iddr_id and the QR it calls. The SVD and FFT files keep integer
-        # factor tables inside a real workspace; LFortran rejects that, so
-        # they are not part of this closure.
-        names = [
-            "idd_house.f", "idd_id.f", "idd_qrpiv.f", "idd_snorm.f",
-            "id_rand.f", "prini.f",
-        ]
+        # The full SciPy closure, including the SVD and FFTPACK sources.
+        # Those pass a real or complex workspace to an integer or real dummy.
         base = scipy / "scipy/linalg/src/id_dist/src"
-        return [base / name for name in names]
+        return sorted(base.glob("*.f"))
     if kind == "propack":
         names = [
             "dblasext.F", "dlansvd.F", "dlanbpro.F", "dreorth.F",
@@ -277,6 +272,11 @@ def build_extension(f2py_mod, spec: dict, compiler: str, flags: list[str],
         # the preprocessor and fixed form for those SciPy sources.
         if src.suffix == ".F" and compiler.startswith("lfortran"):
             extra.extend(["--fixed-form", "--cpp"])
+        # id_dist stores integer factor tables in a real or complex
+        # workspace. --implicit-argument-casting passes those bytes
+        # through, which is what --std=legacy does.
+        if spec.get("cast") and compiler.startswith("lfortran"):
+            extra.append("--implicit-argument-casting")
         if compiler.startswith("lfortran"):
             cmd = [str(LFORTRAN), "-c", *flags, *extra, *inc, str(src), "-o", str(obj)]
         else:
@@ -615,6 +615,21 @@ def make_cases(module):
                 f"id krank={krank} nfev={nfev} recon={recon}")
         return f"nfev={nfev} krank={krank} recon={recon:.3e}"
 
+    nrep_idx = 200
+
+    def idextra():
+        info, nsv, fft_err, svd_err = module.bench_id_extra(nrep_idx)
+        return int(info), int(nsv), float(fft_err), float(svd_err)
+
+    def check_idextra():
+        info, nsv, fft_err, svd_err = idextra()
+        # dfftb(dfftf(x)) is n*x, and the 16x8 diagonal has singular
+        # values 4 and 3. ier outside 0, or a short run, is not that work.
+        if info != 0 or nsv != nrep_idx or fft_err > 1e-10 or svd_err > 1e-8:
+            raise AssertionError(
+                f"idextra info={info} nsv={nsv} fft_err={fft_err} svd_err={svd_err}")
+        return f"info={info} nfev={nsv} fft_err={fft_err:.3e} svd_err={svd_err:.3e}"
+
     nrep_pp = 250
 
     def propack():
@@ -644,6 +659,7 @@ def make_cases(module):
         "odepack_lsoda": (lsoda, check_lsoda),
         "odrpack_dodr": (odr, check_odr),
         "id_dist_id": (idist, check_id),
+        "id_dist_extra": (idextra, check_idextra),
         "propack_lansvd": (propack, check_propack),
     }
 
@@ -732,10 +748,11 @@ SPECS = [
     {
         "name": "id_dist",
         "driver": SRC / "id_dist_bench.f90",
-        "only": ["bench_id"],
+        "only": ["bench_id", "bench_id_extra"],
         "scipy": "id_dist",
         "blas": True,
-        "calls": ["id_dist_id"],
+        "cast": True,
+        "calls": ["id_dist_id", "id_dist_extra"],
     },
     {
         "name": "propack",
