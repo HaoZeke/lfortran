@@ -156,6 +156,8 @@ struct CompilerOptions {
     bool interactive = false;
     bool c_preprocessor = false;
     std::vector<std::string> c_preprocessor_defines;
+    // Macros removed after -D is applied, so -U wins over -D.
+    std::vector<std::string> c_preprocessor_undefines;
     bool prescan = true;
     bool disable_main = false;
     bool symtab_only = false;

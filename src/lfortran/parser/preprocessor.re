@@ -130,6 +130,9 @@ CPreprocessor::CPreprocessor(CompilerOptions &compiler_options)
         }
         macro_definitions[d] = md;
     }
+    for (const auto &name : compiler_options.c_preprocessor_undefines) {
+        macro_definitions.erase(name);
+    }
 
     md.expansion = "\"\"";
     macro_definitions["__FILE__"] = md;

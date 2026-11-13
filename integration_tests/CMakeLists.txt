@@ -222,7 +222,14 @@ macro(RUN_UTIL RUN_FAIL RUN_NAME RUN_FILE_NAME RUN_LABELS RUN_EXTRAFILES RUN_EXT
             add_custom_target(${name}_single_invocation ALL DEPENDS ${CURRENT_BINARY_DIR}/${name})
             add_test(${name} ${CURRENT_BINARY_DIR}/${name})
         elseif (LFORTRAN_BACKEND STREQUAL "llvm")
-            add_executable(${name} ${file_name}.f90 ${extra_files})
+            # .F is preprocessed with no flag, the same as GFortran. A test of
+            # that has no .f90 source.
+            if (EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/${file_name}.F)
+                set(lf_src ${file_name}.F)
+            else()
+                set(lf_src ${file_name}.f90)
+            endif()
+            add_executable(${name} ${lf_src} ${extra_files})
             target_compile_options(${name} PUBLIC $<$<COMPILE_LANGUAGE:Fortran>:${extra_args}>)
             if (ISO_FORTRAN_BINDING_INCLUDE_DIR)
                 target_include_directories(${name} PRIVATE ${ISO_FORTRAN_BINDING_INCLUDE_DIR})
@@ -312,7 +319,12 @@ macro(RUN_UTIL RUN_FAIL RUN_NAME RUN_FILE_NAME RUN_LABELS RUN_EXTRAFILES RUN_EXT
             endif()
             add_test(${name} ${CURRENT_BINARY_DIR}/${name})
         else ()
-            add_executable(${name} ${file_name}.f90 ${extra_files})
+            if (EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/${file_name}.F)
+                set(lf_src ${file_name}.F)
+            else()
+                set(lf_src ${file_name}.f90)
+            endif()
+            add_executable(${name} ${lf_src} ${extra_files})
             target_compile_options(${name} PUBLIC $<$<COMPILE_LANGUAGE:Fortran>:${gfortran_args}>)
             target_link_options(${name} PUBLIC ${gfortran_args})
             if (ISO_FORTRAN_BINDING_INCLUDE_DIR)
@@ -5826,6 +5838,10 @@ RUN(NAME cpp_pre_19 LABELS gfortran llvm
 RUN(NAME cpp_pre_20 LABELS gfortran llvm
     EXTRA_ARGS --cpp
     GFORTRAN_ARGS -cpp)
+
+RUN(NAME cpp_pre_21 LABELS gfortran llvm
+    EXTRA_ARGS -DFEATURE -UFEATURE
+    GFORTRAN_ARGS -DFEATURE -UFEATURE)
 
 RUN(NAME dabs_01 LABELS gfortran llvmImplicit)
 

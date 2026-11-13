@@ -276,6 +276,7 @@ namespace LCompilers::CommandLineInterface {
         app.add_option("-J", compiler_options.po.mod_files_dir, "Where to save mod files");
         app.add_flag("-g", compiler_options.emit_debug_info, "Compile with debugging information");
         app.add_option("-D", compiler_options.c_preprocessor_defines, "Define <macro>=<value> (or 1 if <value> omitted)")->allow_extra_args(false);
+        app.add_option("-U", compiler_options.c_preprocessor_undefines, "Undefine <macro>")->allow_extra_args(false);
         app.add_flag("--version", opts.arg_version, "Display compiler version information");
         app.add_option("-W", opts.linker_flags, "Linker flags")->allow_extra_args(false);
         app.add_option("-f", opts.f_flags, "All `-f*` flags (only -fPIC, -fPIE & -fdefault-integer-8 supported for now)")->allow_extra_args(false);
@@ -768,7 +769,10 @@ namespace LCompilers::CommandLineInterface {
             compiler_options.c_preprocessor = false;
         // Decide if a file gets preprocessing based on the extension
         // Gfortran does the same thing
-        } else if (opts.cpp_infer && (endswith(source_file, ".F90") || endswith(source_file, ".F"))) {
+        } else if (endswith(source_file, ".F") || endswith(source_file, ".F90") ||
+                endswith(source_file, ".F95") || endswith(source_file, ".F03") ||
+                endswith(source_file, ".F08") || endswith(source_file, ".FOR")) {
+            // GFortran preprocesses these extensions without a flag.
             compiler_options.c_preprocessor = true;
         } else {
             compiler_options.c_preprocessor = false;
