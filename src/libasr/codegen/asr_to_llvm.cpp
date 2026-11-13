@@ -4807,17 +4807,29 @@ public:
                 ptr_loads = 0;
                 this->visit_expr(*x.m_args[0]);
                 ptr_loads = ptr_loads_copy;
-                ASR::ttype_t* arg_type = ASRUtils::get_contained_type(
-                    ASRUtils::expr_type(x.m_args[0]));
+                ASR::ttype_t* arg_expr_type = ASRUtils::expr_type(x.m_args[0]);
+                ASR::ttype_t* arg_type = ASRUtils::get_contained_type(arg_expr_type);
                 // A descriptor's address is not the address of its first
-                // element. A fixed-size array already is.
+                // element. A fixed-size array already is. An allocatable
+                // or pointer array is a pointer to that descriptor, so the
+                // descriptor is loaded before its base_addr field.
                 if (ASRUtils::is_array(arg_type) &&
                         ASRUtils::extract_physical_type(arg_type) ==
                             ASR::array_physical_typeType::DescriptorArray) {
+                    llvm::Type* desc_type = llvm_utils->get_type_from_ttype_t_util(
+                        x.m_args[0],
+                        ASRUtils::type_get_past_allocatable_pointer(arg_expr_type),
+                        module.get());
+                    llvm::Value* desc = tmp;
+                    if (ASRUtils::is_allocatable(arg_expr_type) ||
+                            ASRUtils::is_pointer(arg_expr_type)) {
+                        desc = llvm_utils->CreateLoad2(
+                            desc_type->getPointerTo(), tmp);
+                    }
                     llvm::Type* elem_type = llvm_utils->get_type_from_ttype_t_util(
                         ASRUtils::get_contained_type(arg_type), nullptr, module.get());
                     tmp = llvm_utils->CreateLoad2(elem_type->getPointerTo(),
-                        arr_descr->get_pointer_to_data(elem_type, tmp));
+                        arr_descr->get_pointer_to_data(desc_type, desc));
                 }
                 tmp = builder->CreatePtrToInt(tmp, llvm::Type::getInt64Ty(context));
                 break;
