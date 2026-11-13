@@ -5738,8 +5738,11 @@ namespace Cmplx {
         } else {
             m_args.push_back(al, args[2]);
         }
-        for( size_t i = 0; i < 1; i++ ) {
-            ASR::ttype_t* type = ASRUtils::expr_type(args[i]);
+        // Either part may be an array. `cmplx(scalar, array)` is an
+        // array, the same as `cmplx(array, scalar)`.
+        for (size_t i = 0; i < 2; i++) {
+            if (m_args[i] == nullptr) continue;
+            ASR::ttype_t* type = ASRUtils::expr_type(m_args[i]);
             if (ASRUtils::is_array(type)) {
                 ASR::dimension_t* m_dims = nullptr;
                 size_t n_dims = ASRUtils::extract_dimensions_from_ttype(type, m_dims);
