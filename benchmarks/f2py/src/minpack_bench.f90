@@ -74,3 +74,58 @@ subroutine bench_lmdif(m, x, info, nfev, ssq)
     ssq = ssq + fvec(i) * fvec(i)
   end do
 end subroutine bench_lmdif
+
+subroutine powell_fcn(n, x, fvec, iflag)
+  implicit none
+  integer :: n, iflag
+  double precision :: x(n), fvec(n)
+  integer :: nfev
+  common /hybrdd/ nfev
+  nfev = nfev + 1
+  fvec(1) = x(1) + 10.0d0 * x(2)
+  fvec(2) = sqrt(5.0d0) * (x(3) - x(4))
+  fvec(3) = (x(2) - 2.0d0 * x(3))**2
+  fvec(4) = sqrt(10.0d0) * (x(1) - x(4))**2
+end subroutine powell_fcn
+
+subroutine bench_hybrd(nrep, info, nfev_out, xmax)
+  implicit none
+  integer, intent(in) :: nrep
+  integer, intent(out) :: info, nfev_out
+  double precision, intent(out) :: xmax
+  integer, parameter :: n = 4
+  integer, parameter :: lwa = (n * (3 * n + 13)) / 2
+  integer :: rep, nfev, i
+  double precision :: x(n), fvec(n), wa(lwa), tol, ax, xsum
+  common /hybrdd/ nfev
+  external powell_fcn
+  interface
+    subroutine hybrd1(fcn, n, x, fvec, tol, info, wa, lwa)
+      integer :: n, info, lwa
+      double precision :: tol
+      double precision :: x(*), fvec(*), wa(*)
+      external fcn
+    end subroutine hybrd1
+  end interface
+  tol = 1.0d-10
+  info = 0
+  nfev_out = 0
+  xmax = -1.0d0
+  xsum = 0.0d0
+  do rep = 1, nrep
+    x(1) = 3.0d0
+    x(2) = -1.0d0
+    x(3) = 0.0d0
+    x(4) = 1.0d0
+    nfev = 0
+    call hybrd1(powell_fcn, n, x, fvec, tol, info, wa, lwa)
+    xsum = xsum + x(1) + x(2) + x(3) + x(4)
+    if (info /= 1 .and. info /= 4) exit
+  end do
+  nfev_out = nfev
+  xmax = abs(xsum)
+  do i = 1, n
+    ax = abs(x(i))
+    if (ax > xmax) xmax = ax
+  end do
+end subroutine bench_hybrd

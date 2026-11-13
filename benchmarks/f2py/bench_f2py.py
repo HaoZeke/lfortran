@@ -7,9 +7,11 @@ linked with that compiler's runtime. Meson has no LFortran compiler id, so
 this driver does the compile and link f2py's meson backend would do.
 
 Workloads use the SciPy 1.14.1 Fortran sources (fitpack curfit/splev, minpack
-lmdif, quadpack dqags, L-BFGS-B setulb, ARPACK dsaupd, ODEPACK lsoda) plus a
-triple loop and a reduction. The timed region is one call into the extension,
-pinned to CPU 0.
+lmdif and hybrd1, quadpack dqags, L-BFGS-B setulb, ARPACK dsaupd, ODEPACK
+lsoda) plus FFTPACK 4 rfftf/rfftb (the real transforms SciPy 1.3.3 shipped;
+1.14.1 no longer has them), a triple loop, and a reduction. The timed region
+is one call into the extension. Compilers share one core: each repeat runs
+every compiler once, in rotating order, after a warmup of the same shape.
 
 LFortran flags (this is what --fast means in this tree, plus the flags SciPy's
 fixed-form sources need and the flag this NumPy adds when FC names LFortran):
@@ -149,6 +151,9 @@ def fortran_sources(scipy: Path, kind: str) -> list[Path]:
         sources = [base / name for name in names]
         sources.append(scipy / "scipy/integrate/mach/d1mach.f")
         return sources
+    if kind == "fftpack":
+        # Real rffti/rfftf/rfftb and the radf/radb kernels in the same files.
+        return sorted((SRC / "fftpack").glob("*.f"))
     if kind == "arpack":
         # dsaupd/dseupd call closure. The complex drivers need SciPy's g77
         # zdotc wrapper (wzdotc) and are not part of this eigenproblem.
@@ -412,6 +417,36 @@ def make_cases(module):
             raise AssertionError(f"lmdif info={info} nfev={nfev} ssq={ssq} x={xfit}")
         return f"info={info} nfev={nfev} ssq={ssq:.3e}"
 
+    nrep_h = 2000
+
+    def hybrd():
+        info, nfev, xmax = module.bench_hybrd(nrep_h)
+        return int(info), int(nfev), float(xmax)
+
+    def check_hybrd():
+        info, nfev, xmax = hybrd()
+        # Powell's singular function, started at (3, -1, 0, 1). The Jacobian
+        # is singular at the origin, so hybrd1 stops with info 4 once x is
+        # already there. gfortran -O2 does the same.
+        if info not in (1, 4) or xmax > 1e-8:
+            raise AssertionError(f"hybrd info={info} nfev={nfev} xmax={xmax}")
+        return f"info={info} nfev={nfev} xmax={xmax:.3e}"
+
+    nrep_fft = 20
+
+    def rfft():
+        err_pow2, err_gen = module.bench_rfft(nrep_fft)
+        return float(err_pow2), float(err_gen)
+
+    def check_rfft():
+        err_pow2, err_gen = rfft()
+        # Single-precision rfftb(rfftf(x))/n. gfortran's round trip on both
+        # lengths stays well under 1e-4 for this O(1) signal.
+        if err_pow2 > 1e-5 or err_gen > 1e-5:
+            raise AssertionError(
+                f"rfft err_pow2={err_pow2} err_gen={err_gen}")
+        return f"err_pow2={err_pow2:.3e} err_n60000={err_gen:.3e}"
+
     nrep_q = 20000
 
     def dqags():
@@ -479,6 +514,8 @@ def make_cases(module):
         "fitpack_splrep": (splrep, check_splrep),
         "fitpack_splev": (splev, check_splev),
         "minpack_lmdif": (lmdif, check_lmdif),
+        "minpack_hybrd": (hybrd, check_hybrd),
+        "fftpack_rfft": (rfft, check_rfft),
         "quadpack_dqags": (dqags, check_dqags),
         "lbfgsb_setulb": (setulb, check_setulb),
         "arpack_dsaupd": (dsaupd, check_dsaupd),
@@ -514,10 +551,10 @@ SPECS = [
     {
         "name": "minpack",
         "driver": SRC / "minpack_bench.f90",
-        "only": ["bench_lmdif"],
+        "only": ["bench_lmdif", "bench_hybrd"],
         "scipy": "minpack",
         "blas": False,
-        "calls": ["minpack_lmdif"],
+        "calls": ["minpack_lmdif", "minpack_hybrd"],
     },
     {
         "name": "quadpack",
@@ -550,6 +587,14 @@ SPECS = [
         "scipy": "odepack",
         "blas": True,
         "calls": ["odepack_lsoda"],
+    },
+    {
+        "name": "fftpack",
+        "driver": SRC / "fftpack_bench.f90",
+        "only": ["bench_rfft"],
+        "scipy": "fftpack",
+        "blas": False,
+        "calls": ["fftpack_rfft"],
     },
 ]
 
@@ -646,7 +691,7 @@ def main() -> None:
         "gfortran_O3_native": compilers[4][1],
         "repeats": REPEATS,
         "warmup": WARMUP,
-        "cpu": "pinned to logical cpu 0",
+        "cpu": "pinned to logical cpu 0, compilers interleaved each repeat",
     }
     print("flags", lf_flags)
     print("flags-nofast", lf_nofast_flags)
@@ -680,6 +725,9 @@ def main() -> None:
 
     for spec in selected:
         for call in spec["calls"]:
+            ready = []
+            notes = {}
+            fns = {}
             for compiler, _flags in compilers:
                 info = built[f"{spec['name']}:{compiler}"]
                 slot = results["workloads"][call].setdefault(compiler, {})
@@ -688,18 +736,37 @@ def main() -> None:
                     print(f"SKIP {call} {compiler}", flush=True)
                     continue
                 fn, check = info["cases"][call]
-                print(f"RUN {call} {compiler}", flush=True)
                 try:
-                    note = check()
-                    stats = time_call(fn)
-                    slot.update(stats)
-                    slot["check"] = note
-                    slot["error"] = None
-                    print(f"  median {stats['median_s']:.6f}s  iqr {stats['iqr_s']:.6f}s  {note}",
-                          flush=True)
+                    notes[compiler] = check()
                 except Exception as exc:
                     slot["error"] = str(exc)
-                    print(f"  RUN FAIL {call} {compiler}: {exc}", flush=True)
+                    print(f"  CHECK FAIL {call} {compiler}: {exc}", flush=True)
+                    continue
+                fns[compiler] = fn
+                ready.append(compiler)
+            if not ready:
+                continue
+            print(f"RUN {call} interleaved {', '.join(ready)}", flush=True)
+            samples = {name: [] for name in ready}
+            ncomp = len(ready)
+            for i in range(WARMUP + REPEATS):
+                shift = i % ncomp
+                order = ready[shift:] + ready[:shift]
+                for name in order:
+                    t0 = time.perf_counter()
+                    fns[name]()
+                    if i >= WARMUP:
+                        samples[name].append(time.perf_counter() - t0)
+            for name in ready:
+                slot = results["workloads"][call][name]
+                stats = summarize(samples[name])
+                slot.update(stats)
+                slot["check"] = notes[name]
+                slot["error"] = None
+                print(
+                    f"  {name} median {stats['median_s']:.6f}s  "
+                    f"iqr {stats['iqr_s']:.6f}s  {notes[name]}",
+                    flush=True)
 
     # Ratios. Profile when --fast is >1.5x the matched native fast-math gfortran.
     profiles = {}
