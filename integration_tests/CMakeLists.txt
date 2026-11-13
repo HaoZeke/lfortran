@@ -7996,6 +7996,9 @@ RUN(NAME rosen_grad_01 LABELS gfortran llvm EXTRA_ARGS --fast)
 # ijk product with the contiguous index moved innermost. --no-fast-math keeps
 # each output element's sum in k order.
 RUN(NAME matmul_inner_01 LABELS gfortran llvm EXTRA_ARGS --fast --no-fast-math)
+# Indexed saxpy with a division. --fast --no-fast-math keeps it scalar;
+# the values are the in-order sum.
+RUN(NAME gather_div_01 LABELS gfortran llvm EXTRA_ARGS --fast --no-fast-math)
 # Strided inner product. --fast must keep the sum, including when the
 # strided operand is not gathered.
 RUN(NAME matmul_strided_01 LABELS gfortran llvm EXTRA_ARGS --fast)

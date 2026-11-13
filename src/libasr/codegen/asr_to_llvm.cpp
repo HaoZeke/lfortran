@@ -1226,6 +1226,88 @@ public:
         return false;
     }
 
+    // An index computed from a load through a GEP is a gather (ind(i) used as
+    // a subscript). The value is stored to a local and reloaded, so a load
+    // from an alloca that was stored from such a load counts too. The do-loop
+    // induction variable is a load from its alloca and is not in that set.
+    bool is_gather_index(llvm::Value* v, int depth,
+            const std::set<llvm::Value*>& slots) {
+        if (v == nullptr || depth > 16) {
+            return false;
+        }
+        if (auto* load = llvm::dyn_cast<llvm::LoadInst>(v)) {
+            llvm::Value* ptr = load->getPointerOperand();
+            if (llvm::isa<llvm::GetElementPtrInst>(ptr)) {
+                return true;
+            }
+            return slots.find(ptr) != slots.end();
+        }
+        if (auto* cast = llvm::dyn_cast<llvm::CastInst>(v)) {
+            return is_gather_index(cast->getOperand(0), depth + 1, slots);
+        }
+        auto* bin = llvm::dyn_cast<llvm::BinaryOperator>(v);
+        if (bin == nullptr) {
+            return false;
+        }
+        return is_gather_index(bin->getOperand(0), depth + 1, slots)
+            || is_gather_index(bin->getOperand(1), depth + 1, slots);
+    }
+
+    // subsm's update is d(i) = d(i) + wy(ind(i), p)*wv/theta + ws(ind(i), p)*wv2.
+    // Without fast-math the division stays in the loop. LLVM 11 then emits
+    // vgatherqpd plus vdivpd, and that is slower than the scalar divsd loop
+    // gfortran -O3 keeps (gcc -march=native -fno-fast-math declines it too).
+    // With fast-math the division becomes a multiply and the gather pays off,
+    // so this only applies to --fast --no-fast-math.
+    bool loop_has_gather_and_div(llvm::BasicBlock* header, llvm::BasicBlock* exit_bb) {
+        bool gather = false;
+        bool div = false;
+        std::set<llvm::Value*> slots;
+        std::vector<llvm::BasicBlock*> work;
+        std::set<llvm::BasicBlock*> seen;
+        work.push_back(header);
+        while (!work.empty()) {
+            llvm::BasicBlock* bb = work.back();
+            work.pop_back();
+            if (bb == nullptr || bb == exit_bb || !seen.insert(bb).second) {
+                continue;
+            }
+            for (llvm::Instruction& inst : *bb) {
+                if (inst.getOpcode() == llvm::Instruction::FDiv) {
+                    div = true;
+                }
+                if (auto* store = llvm::dyn_cast<llvm::StoreInst>(&inst)) {
+                    if (is_gather_index(store->getValueOperand(), 0, slots)) {
+                        slots.insert(store->getPointerOperand());
+                    }
+                    continue;
+                }
+                auto* load = llvm::dyn_cast<llvm::LoadInst>(&inst);
+                if (load == nullptr) {
+                    continue;
+                }
+                auto* gep = llvm::dyn_cast<llvm::GetElementPtrInst>(
+                    load->getPointerOperand());
+                if (gep == nullptr) {
+                    continue;
+                }
+                for (llvm::Use& idx : gep->indices()) {
+                    if (is_gather_index(idx.get(), 0, slots)) {
+                        gather = true;
+                    }
+                }
+            }
+            llvm::Instruction* term = bb->getTerminator();
+            if (term == nullptr) {
+                continue;
+            }
+            for (unsigned i = 0; i < term->getNumSuccessors(); i++) {
+                work.push_back(term->getSuccessor(i));
+            }
+        }
+        return gather && div;
+    }
+
     // Under --fast, LLVM would runtime-unroll loops whose trip count is unknown.
     // Fortran array-operation loops are often short (e.g. a 3x3 window), and the
     // unrolled body with its remainder checks then only adds overhead and
@@ -1243,9 +1325,19 @@ public:
         const char* kind = block_unroll
             ? "llvm.loop.unroll.disable"
             : "llvm.loop.unroll.runtime.disable";
-        llvm::Metadata* disable = llvm::MDNode::get(context,
-            llvm::MDString::get(context, kind));
-        llvm::MDNode* loop_id = llvm::MDNode::getDistinct(context, {nullptr, disable});
+        llvm::SmallVector<llvm::Metadata*, 4> ops;
+        ops.push_back(nullptr);
+        ops.push_back(llvm::MDNode::get(context,
+            llvm::MDString::get(context, kind)));
+        if (compiler_options.po.no_fast_math && header != nullptr
+                && loop_has_gather_and_div(header, exit_bb)) {
+            llvm::Metadata* enable[] = {
+                llvm::MDString::get(context, "llvm.loop.vectorize.enable"),
+                llvm::ConstantAsMetadata::get(llvm::ConstantInt::getFalse(context))
+            };
+            ops.push_back(llvm::MDNode::get(context, enable));
+        }
+        llvm::MDNode* loop_id = llvm::MDNode::getDistinct(context, ops);
         loop_id->replaceOperandWith(0, loop_id);
         latch->setMetadata(llvm::LLVMContext::MD_loop, loop_id);
     }
