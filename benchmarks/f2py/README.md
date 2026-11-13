@@ -17,17 +17,20 @@ is faster.
 | lf/O3n | `--fast` | `-O3 -march=native -ffast-math -funroll-loops` |
 | lf-nf/O3 | `--fast --no-fast-math` | `-O3` |
 | lf-nf/O3n | `--fast --no-fast-math` | `-O3 -march=native -ffast-math -funroll-loops` |
-| lf-nf/march | `--fast --no-fast-math` | `-O3 -march=native` |
+| lf-nf/strict | `--fast --no-fast-math` | `-O3 -march=native -ffp-contract=off` |
 
 Every gfortran line also passes `-fPIC -std=legacy`. `--fast` is
 LFortran's fast math, native CPU, and LLVM `-O3`. `--no-fast-math`
 keeps the rest of `--fast` and turns fast math off.
 
-`-ffast-math` is on for lf and for O3n only. O2, O3, march, and lf-nf
-leave the floating-point sum in source order. lf-nf/march is the
-strict comparison at native width. lf-nf/O3n is strict LFortran
-against gfortran with `-ffast-math`, so a gap there can be
-reassociation rather than a missed instruction.
+gfortran contracts a multiply and an add into an FMA by default
+(`-ffp-contract=fast`) even when `-ffast-math` is off. `-ffast-math`
+is on for lf and for O3n only. O2, O3, and lf-nf do not pass
+`-ffast-math`, but O2 and O3 still contract. lf-nf/strict is the
+like-for-like native comparison: same width, contraction off on the
+gfortran side. lf-nf/O3n is strict LFortran against gfortran with
+`-ffast-math`, so a gap there can be reassociation rather than a
+missed instruction.
 
 The check string next to each median is the work count for that call
 (`nfev`, `neval`, `nfg`, `niter`, `nfe`, or `n`) when the workload
