@@ -6023,6 +6023,8 @@ RUN(NAME integer_kind_16_read LABELS gfortran llvm)
 RUN(NAME integer_kind_16_boz_nml LABELS gfortran llvm)
 
 RUN(NAME procedure_iface_external LABELS gfortran llvm EXTRA_ARGS --implicit-interface)
+RUN(NAME external_call_01 LABELS gfortran llvm)
+RUN(NAME external_func_01 LABELS gfortran llvm EXTRAFILES external_func_01_lsame.f90)
 
 RUN(NAME std_legacy_free_form LABELS gfortran llvm
     EXTRA_ARGS --std=legacy GFORTRAN_ARGS -std=legacy)
