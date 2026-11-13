@@ -7,8 +7,9 @@ linked with that compiler's runtime. Meson has no LFortran compiler id, so
 this driver does the compile and link f2py's meson backend would do.
 
 Workloads use the SciPy 1.14.1 Fortran sources (fitpack curfit/splev, minpack
-lmdif, quadpack dqags, L-BFGS-B setulb, ARPACK dsaupd) plus a triple loop and
-a reduction. The timed region is one call into the extension, pinned to CPU 0.
+lmdif, quadpack dqags, L-BFGS-B setulb, ARPACK dsaupd, ODEPACK lsoda) plus a
+triple loop and a reduction. The timed region is one call into the extension,
+pinned to CPU 0.
 
 LFortran flags (this is what --fast means in this tree, plus the flags SciPy's
 fixed-form sources need and the flag this NumPy adds when FC names LFortran):
@@ -138,6 +139,16 @@ def fortran_sources(scipy: Path, kind: str) -> list[Path]:
         return [base / name for name in names]
     if kind == "lbfgsb":
         return sorted((scipy / "scipy/optimize/lbfgsb_src").glob("*.f"))
+    if kind == "odepack":
+        names = [
+            "blkdta000.f", "bnorm.f", "cfode.f", "ewset.f", "fnorm.f",
+            "intdy.f", "lsoda.f", "prja.f", "solsy.f", "srcma.f", "stoda.f",
+            "vmnorm.f", "xerrwv.f", "xsetf.f", "xsetun.f",
+        ]
+        base = scipy / "scipy/integrate/odepack"
+        sources = [base / name for name in names]
+        sources.append(scipy / "scipy/integrate/mach/d1mach.f")
+        return sources
     if kind == "arpack":
         # dsaupd/dseupd call closure. The complex drivers need SciPy's g77
         # zdotc wrapper (wzdotc) and are not part of this eigenproblem.
@@ -445,6 +456,23 @@ def make_cases(module):
                 f"dsaupd info={info} niter={niter} max_abs_err={err} evals={evals}")
         return f"info={info} niter={niter} max_abs_err={err:.3e}"
 
+    # Stiff Robertson problem, one shot to t = 1e4. Reference values are
+    # gfortran -O3 -ffast-math -march=native at rtol 1e-6, atol 1e-8.
+    nrep_ode = 40
+
+    def lsoda():
+        y1, y2, y3, istate = module.bench_lsoda(nrep_ode)
+        return float(y1), float(y2), float(y3), int(istate)
+
+    def check_lsoda():
+        y1, y2, y3, istate = lsoda()
+        if istate != 2:
+            raise AssertionError(f"lsoda istate={istate} y=({y1}, {y2}, {y3})")
+        if abs(y1 - 0.10730007) > 1.0e-5 or abs(y3 - 0.89269945) > 1.0e-5 \
+                or abs(y2 - 4.80015e-7) > 1.0e-9:
+            raise AssertionError(f"lsoda y=({y1}, {y2}, {y3})")
+        return f"istate={istate} y1={y1:.6e} y2={y2:.3e} y3={y3:.6e}"
+
     return {
         "triple_loop": (triple, check_triple),
         "reduction": (reduce, check_reduce),
@@ -454,6 +482,7 @@ def make_cases(module):
         "quadpack_dqags": (dqags, check_dqags),
         "lbfgsb_setulb": (setulb, check_setulb),
         "arpack_dsaupd": (dsaupd, check_dsaupd),
+        "odepack_lsoda": (lsoda, check_lsoda),
     }
 
 
@@ -513,6 +542,14 @@ SPECS = [
         "scipy": "arpack",
         "blas": True,
         "calls": ["arpack_dsaupd"],
+    },
+    {
+        "name": "odepack",
+        "driver": SRC / "odepack_bench.f90",
+        "only": ["bench_lsoda"],
+        "scipy": "odepack",
+        "blas": True,
+        "calls": ["odepack_lsoda"],
     },
 ]
 
