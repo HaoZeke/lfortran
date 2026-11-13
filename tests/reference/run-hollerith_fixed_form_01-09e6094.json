@@ -1,0 +1,13 @@
+{
+    "basename": "run-hollerith_fixed_form_01-09e6094",
+    "cmd": "lfortran --no-color {infile}",
+    "infile": "tests/../integration_tests/hollerith_fixed_form_01.f",
+    "infile_hash": "5ff603510ab890bc98498ec67215ce2760ab5128dae910ff09584f03",
+    "outfile": null,
+    "outfile_hash": null,
+    "stdout": "run-hollerith_fixed_form_01-09e6094.stdout",
+    "stdout_hash": "c33e6e18706d199591f48047a5af72f9f477712cae3e63d6911df18f",
+    "stderr": null,
+    "stderr_hash": null,
+    "returncode": 0
+}

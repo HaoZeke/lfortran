@@ -722,19 +722,54 @@ void report_unterminated_literal(diag::Diagnostics &diagnostics,
             {loc})}));
 }
 
+// A fixed-form nH edit descriptor keeps its next n characters, including
+// the blanks the prescanner otherwise removes. Short lines are blank-padded
+// through column 72, and that padding is part of the descriptor when the
+// count runs past the last character of the line. `hollerith_left` is the
+// number of those characters still to be copied; it survives onto the
+// continuation line.
+void pad_hollerith(std::string &out, int col, int &hollerith_left)
+{
+    if (hollerith_left <= 0 || col > 72) return;
+    int pad = 73 - col;
+    if (pad > hollerith_left) pad = hollerith_left;
+    out.append(pad, ' ');
+    hollerith_left -= pad;
+}
+
 // Only used in fixed-form
 // Returns false (and reports an error) on an unterminated character literal
 bool copy_rest_of_line(std::string &out, const std::string &s, size_t &pos,
 		       LocationManager &lm, int &col,
-		       diag::Diagnostics &diagnostics)
+		       diag::Diagnostics &diagnostics, int &hollerith_left)
 {
+    // Digits of an nH count. -1 means the previous character was not a digit.
+    int hol_num = -1;
     while (pos < s.size() && s[pos] != '\n') {
         if (col > 72) {
+            pad_hollerith(out, col, hollerith_left);
             skip_rest_of_line(s, pos);
             out += '\n';
             return true;
         }
+        if (hollerith_left > 0) {
+            // The descriptor text is character data: keep the case and
+            // every blank, and do not treat '!' or a quote as syntax.
+            if (s[pos] == '\r') {
+                pos++;
+                lm.files.back().out_start.push_back(source_offset(out.size()));
+                lm.files.back().in_start.push_back(source_offset(pos));
+                continue;
+            }
+            out += s[pos];
+            pos++;
+            col++;
+            hollerith_left--;
+            hol_num = -1;
+            continue;
+        }
         if (s[pos] == '"' || s[pos] == '\'') {
+            hol_num = -1;
             Location loc;
             loc.first = source_offset(out.size());
             loc.last = source_offset(out.size());
@@ -743,11 +778,13 @@ bool copy_rest_of_line(std::string &out, const std::string &s, size_t &pos,
                 return false;
             }
         } else if (s[pos] == '!') {
+            pad_hollerith(out, col, hollerith_left);
             skip_rest_of_line(s, pos);
             out += '\n';
             return true;
         } else if (s[pos] == ' ' || s[pos] == '\t') {
-            // Skip white space in a fixed-form parser
+            // A blank inside an nH count (`4 6H`) is not significant.
+            // Any other blank is removed.
             pos++;
             col++;
             lm.files.back().out_start.push_back(source_offset(out.size()));
@@ -758,13 +795,27 @@ bool copy_rest_of_line(std::string &out, const std::string &s, size_t &pos,
             // Don't advance the column count here
             lm.files.back().out_start.push_back(source_offset(out.size()));
             lm.files.back().in_start.push_back(source_offset(pos));
+        } else if (is_num(s[pos])) {
+            if (hol_num < 0) hol_num = 0;
+            hol_num = hol_num * 10 + (s[pos] - '0');
+            out += s[pos];
+            pos++;
+            col++;
+        } else if ((s[pos] == 'H' || s[pos] == 'h') && hol_num >= 0) {
+            hollerith_left = hol_num;
+            hol_num = -1;
+            out += 'h';
+            pos++;
+            col++;
         } else {
+            hol_num = -1;
             // Copy the character, but covert to lowercase
             out += tolower(s[pos]);
             pos++;
             col++;
         }
     }
+    pad_hollerith(out, col, hollerith_left);
     // not always a program end's with '\n', but when it does, copy it
     if (pos < s.size() && s[pos] == '\n') {
         out += s[pos];
@@ -902,7 +953,8 @@ bool prescan_impl(std::string &out, const std::string &s, LocationManager &lm,
         /* Note:
          * This is a fixed-form prescanner, which:
          *
-         *   * Removes all whitespace
+         *   * Removes whitespace, except inside character literals and
+         *     nH edit descriptors (those keep their blanks and case)
          *   * Joins continuation lines
          *   * Removes comments and empty lines
          *   * Handles the first 6 columns
@@ -918,6 +970,10 @@ bool prescan_impl(std::string &out, const std::string &s, LocationManager &lm,
          * parser that correctly identifies tokens so that the Bison
          * parser can parse it correctly.
          */
+        // Characters of an nH edit descriptor still to be copied. The
+        // count can run off the end of one physical line and onto its
+        // continuation.
+        int hollerith_left = 0;
         while (true) {
             const char *p = &s[pos];
             int col = 7;  // Valid after p is advanced to code begin
@@ -936,7 +992,8 @@ bool prescan_impl(std::string &out, const std::string &s, LocationManager &lm,
                     pos += 6;
                     lm.files.back().out_start.push_back(source_offset(out.size()));
                     lm.files.back().in_start.push_back(source_offset(pos));
-                    ok = copy_rest_of_line(out, s, pos, lm, col, diagnostics);
+                    ok = copy_rest_of_line(out, s, pos, lm, col, diagnostics,
+                            hollerith_left);
                     break;
                 }
                 case LineType::StatementTab : {
@@ -944,7 +1001,8 @@ bool prescan_impl(std::string &out, const std::string &s, LocationManager &lm,
                     pos += 1;
                     lm.files.back().out_start.push_back(source_offset(out.size()));
                     lm.files.back().in_start.push_back(source_offset(pos));
-                    ok = copy_rest_of_line(out, s, pos, lm, col, diagnostics);
+                    ok = copy_rest_of_line(out, s, pos, lm, col, diagnostics,
+                            hollerith_left);
                     break;
                 }
                 case LineType::LabeledStatement : {
@@ -953,7 +1011,8 @@ bool prescan_impl(std::string &out, const std::string &s, LocationManager &lm,
                     // Copy from column 7
                     lm.files.back().out_start.push_back(source_offset(out.size()));
                     lm.files.back().in_start.push_back(source_offset(pos));
-                    ok = copy_rest_of_line(out, s, pos, lm, col, diagnostics);
+                    ok = copy_rest_of_line(out, s, pos, lm, col, diagnostics,
+                            hollerith_left);
                     break;
                 }
                 case LineType::Continuation : {
@@ -962,7 +1021,8 @@ bool prescan_impl(std::string &out, const std::string &s, LocationManager &lm,
                     pos += 6;
                     lm.files.back().out_start.push_back(source_offset(out.size()));
                     lm.files.back().in_start.push_back(source_offset(pos));
-                    ok = copy_rest_of_line(out, s, pos, lm, col, diagnostics);
+                    ok = copy_rest_of_line(out, s, pos, lm, col, diagnostics,
+                            hollerith_left);
                     break;
                 }
                 case LineType::ContinuationTab : {
@@ -971,7 +1031,8 @@ bool prescan_impl(std::string &out, const std::string &s, LocationManager &lm,
                     pos += 2;
                     lm.files.back().out_start.push_back(source_offset(out.size()));
                     lm.files.back().in_start.push_back(source_offset(pos));
-                    ok = copy_rest_of_line(out, s, pos, lm, col, diagnostics);
+                    ok = copy_rest_of_line(out, s, pos, lm, col, diagnostics,
+                            hollerith_left);
                     break;
                 }
                 case LineType::Include: {
