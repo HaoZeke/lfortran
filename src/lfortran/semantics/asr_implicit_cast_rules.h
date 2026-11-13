@@ -136,6 +136,32 @@ public:
       return result;
   }
 
+  // Folds a constant integer array to real(10). The result is an
+  // ArrayConstructor: a packed ArrayConstant only stores float and double.
+  static ASR::expr_t* make_real10_array_value(Allocator &al,
+          ASR::ArrayConstant_t* array, ASR::Array_t* array_type,
+          ASR::ttype_t* dest_type) {
+      size_t array_size = ASRUtils::get_fixed_size_of_array(array->m_type);
+      int kind = ASRUtils::extract_kind_from_ttype_t(array->m_type);
+      Vec<ASR::expr_t*> elements; elements.reserve(al, array_size);
+      for (size_t i = 0; i < array_size; i++) {
+          int64_t n;
+          if (kind == 4) n = ((int32_t*) array->m_data)[i];
+          else if (kind == 8) n = ((int64_t*) array->m_data)[i];
+          else if (kind == 2) n = ((int16_t*) array->m_data)[i];
+          else n = ((int8_t*) array->m_data)[i];
+          elements.push_back(al, ASRUtils::make_RealConstant_r10(al,
+              array->base.base.loc, static_cast<long double>(n), dest_type));
+      }
+      ASR::ttype_t* new_array_type = ASRUtils::TYPE(ASR::make_Array_t(al,
+          dest_type->base.loc, dest_type, array_type->m_dims,
+          array_type->n_dims, ASR::array_physical_typeType::FixedSizeArray,
+          ASR::memory_spaceType::Global));
+      return ASRUtils::EXPR(ASRUtils::make_ArrayConstructor_t_util(
+          al, array->base.base.loc, elements.p, elements.n, new_array_type,
+          array->m_storage_format));
+  }
+
   /*
    * Adds ImplicitCast node if necessary.
    *
@@ -331,6 +357,8 @@ public:
                                                   array_type->m_dims, array_type->n_dims, ASR::array_physical_typeType::FixedSizeArray, ASR::memory_spaceType::Global));
                         value = ASRUtils::EXPR(ASRUtils::make_ArrayConstant_t_util(al, value->base.loc,
                             new_data, new_array_type, array->m_storage_format));
+                    } else if (dest_kind == 10) {
+                        value = make_real10_array_value(al, array, array_type, dest_type2);
                     } else if (dest_kind == 16) {
                         // ArrayConstant cannot pack real(16) elements: fold to an ArrayConstructor
                         value = make_real16_array_value(al, array, array_type, dest_type2, 0);

@@ -21715,6 +21715,28 @@ public:
                 ASR::down_cast<ASR::ArrayConstant_t>(value)->m_type = reshape_ttype;
             }
         }
+        if (value == nullptr) {
+            // real(10) source is an ArrayConstructor, not a packed ArrayConstant.
+            ASR::expr_t* ctor_src = array;
+            if (!ASR::is_a<ASR::ArrayConstructor_t>(*ctor_src)) {
+                ASR::expr_t* av = ASRUtils::expr_value(array);
+                if (av && ASR::is_a<ASR::ArrayConstructor_t>(*av)) {
+                    ctor_src = av;
+                }
+            }
+            Vec<ASR::expr_t*> elems; elems.reserve(al, 1);
+            int64_t target_size = ASRUtils::get_fixed_size_of_array(reshape_ttype);
+            if (constant_array_elements(ctor_src, elems) && target_size > 0
+                    && (int64_t) elems.size() >= target_size) {
+                Vec<ASR::expr_t*> kept; kept.reserve(al, target_size);
+                for (int64_t i = 0; i < target_size; i++) {
+                    kept.push_back(al, elems[i]);
+                }
+                value = ASRUtils::EXPR(ASRUtils::make_ArrayConstructor_t_util(al,
+                    array->base.loc, kept.p, kept.size(), reshape_ttype,
+                    ASR::arraystorageType::ColMajor));
+            }
+        }
         return ASR::make_ArrayReshape_t(al, x.base.base.loc, array, newshape, pad_expr, order_expr, reshape_ttype, value, nullptr);
     }
 
@@ -27161,6 +27183,52 @@ public:
         return value;
     }
 
+    // Flat compile-time elements of an array value. real(10) arrays are
+    // constructors, not packed ArrayConstants.
+    bool constant_array_elements(ASR::expr_t* e, Vec<ASR::expr_t*>& out) {
+        if (e == nullptr) {
+            return false;
+        }
+        if (ASR::is_a<ASR::ArrayBroadcast_t>(*e)) {
+            return constant_array_elements(
+                ASR::down_cast<ASR::ArrayBroadcast_t>(e)->m_value, out);
+        }
+        if (ASR::is_a<ASR::Cast_t>(*e)) {
+            ASR::Cast_t* c = ASR::down_cast<ASR::Cast_t>(e);
+            if (c->m_value) {
+                return constant_array_elements(c->m_value, out);
+            }
+            return constant_array_elements(c->m_arg, out);
+        }
+        if (ASR::is_a<ASR::ArrayConstant_t>(*e)) {
+            ASR::ArrayConstant_t* a = ASR::down_cast<ASR::ArrayConstant_t>(e);
+            size_t n = (size_t) ASRUtils::get_fixed_size_of_array(a->m_type);
+            for (size_t i = 0; i < n; i++) {
+                out.push_back(al, ASRUtils::fetch_ArrayConstant_value(al, a, i));
+            }
+            return true;
+        }
+        if (ASR::is_a<ASR::ArrayConstructor_t>(*e)) {
+            ASR::ArrayConstructor_t* a = ASR::down_cast<ASR::ArrayConstructor_t>(e);
+            if (a->m_value && ASR::is_a<ASR::ArrayConstant_t>(*a->m_value)) {
+                return constant_array_elements(a->m_value, out);
+            }
+            for (size_t i = 0; i < a->n_args; i++) {
+                ASR::expr_t* el = ASRUtils::expr_value(a->m_args[i]);
+                if (el == nullptr) {
+                    el = a->m_args[i];
+                }
+                if (el == nullptr || ASRUtils::is_array(ASRUtils::expr_type(el))
+                        || !ASRUtils::is_value_constant(el)) {
+                    return false;
+                }
+                out.push_back(al, el);
+            }
+            return true;
+        }
+        return false;
+    }
+
     ASR::expr_t* extract_value(ASR::expr_t* left_value, ASR::expr_t* right_value, ASR::binopType op, ASR::ttype_t* dest_type, const Location& loc) {
         if (left_value && right_value &&
             ASR::is_a<ASR::ArrayConstant_t>(*left_value) &&
@@ -27185,6 +27253,29 @@ public:
             return ASRUtils::EXPR(ASRUtils::make_ArrayConstant_t_util(al, loc,
                                     data, value_type,
                                     ASR::arraystorageType::ColMajor));
+        }
+        Vec<ASR::expr_t*> left_elems; left_elems.reserve(al, 1);
+        Vec<ASR::expr_t*> right_elems; right_elems.reserve(al, 1);
+        if (constant_array_elements(left_value, left_elems) &&
+                constant_array_elements(right_value, right_elems) &&
+                left_elems.size() == right_elems.size() &&
+                left_elems.size() > 0) {
+            Vec<ASR::expr_t*> values; values.reserve(al, left_elems.size());
+            for (size_t i = 0; i < left_elems.size(); i++) {
+                ASR::expr_t* folded = visit_BinOp_helper(left_elems[i],
+                    right_elems[i], op, loc, ASRUtils::expr_type(left_elems[i]));
+                if (folded == nullptr) {
+                    return nullptr;
+                }
+                values.push_back(al, folded);
+            }
+            ASR::ttype_t* value_type = ASRUtils::type_get_past_allocatable_pointer(dest_type);
+            value_type = ASRUtils::type_get_past_pointer(value_type);
+            if (!ASRUtils::is_array(value_type)) {
+                return nullptr;
+            }
+            return ASRUtils::EXPR(ASRUtils::make_ArrayConstructor_t_util(al, loc,
+                values.p, values.size(), value_type, ASR::arraystorageType::ColMajor));
         }
         return nullptr;
     }
