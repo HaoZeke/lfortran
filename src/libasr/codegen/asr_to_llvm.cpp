@@ -26576,6 +26576,11 @@ public:
         if (dest_str_type->m_len && ASR::is_a<ASR::IntegerConstant_t>(*dest_str_type->m_len)) {
             ASR::IntegerConstant_t* len = ASR::down_cast<ASR::IntegerConstant_t>(dest_str_type->m_len);
             element_length_val = llvm::ConstantInt::get(llvm::Type::getInt32Ty(context), len->m_n);
+        } else if (dest_str_type->m_physical_type == ASR::string_physical_typeType::DescriptorString) {
+            // An assumed-length mold, character*(*), has its length in the
+            // descriptor. That is the number of bytes transfer copies.
+            llvm::Value* runtime_len = llvm_utils->get_string_length(dest_str_type, target_ptr);
+            element_length_val = builder->CreateTrunc(runtime_len, llvm::Type::getInt32Ty(context));
         } else {
             element_length_val = llvm::ConstantInt::get(llvm::Type::getInt32Ty(context), 1);
         }

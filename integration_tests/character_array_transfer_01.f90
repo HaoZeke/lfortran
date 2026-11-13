@@ -35,4 +35,29 @@ program character_array_transfer_01
     c1(2) = 'b'
     call take1(c1, o1, 2, 1)
     if (o1(1, 1) /= iachar('a') .or. o1(2, 1) /= iachar('b')) error stop 3
+    block
+        character(len=15) :: cs(2)
+        integer(1) :: os(2, 15)
+        integer :: i, j
+        character(len=15) :: src(2)
+        src(1) = 'abcdeabcdeabcde'
+        src(2) = 'ABCDEABCDEABCDE'
+        do i = 1, 2
+            do j = 1, 15
+                os(i, j) = iachar(src(i)(j:j))
+            end do
+        end do
+        call take_star(cs, os, 2, 15)
+        if (cs(1) /= src(1) .or. cs(2) /= src(2)) error stop 4
+    end block
 end program
+
+subroutine take_star(c, o, m, n)
+    integer, intent(in) :: m, n
+    character(*), intent(out) :: c(m)
+    integer(1), intent(in) :: o(m, n)
+    integer :: i
+    do i = 1, m
+        c(i) = transfer(o(i, :), c(i))
+    end do
+end subroutine
