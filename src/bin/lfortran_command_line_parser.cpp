@@ -527,8 +527,10 @@ namespace LCompilers::CommandLineInterface {
             compiler_options.print_leading_space = true;
             compiler_options.logical_casting = false;
 
-            // legacy options
-            compiler_options.fixed_form = true;
+            // Legacy language features. Source form stays with the file
+            // extension and --fixed-form: gfortran -std=legacy does not
+            // turn a .f90 file into fixed form, and column 72 would split
+            // a free-form character literal.
             compiler_options.legacy_array_sections = true;
             compiler_options.separate_compilation = true;
         } else {

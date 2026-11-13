@@ -6022,6 +6022,9 @@ RUN(NAME integer_kind_16_boz_nml LABELS gfortran llvm)
 
 RUN(NAME procedure_iface_external LABELS gfortran llvm)
 
+RUN(NAME std_legacy_free_form LABELS gfortran llvm
+    EXTRA_ARGS --std=legacy GFORTRAN_ARGS -std=legacy)
+
 RUN(NAME capital_01 LABELS gfortran llvmImplicit)
 
 RUN(NAME do_concurrent_01 LABELS gfortran llvm llvm_wasm llvm_wasm_emcc mlir)
