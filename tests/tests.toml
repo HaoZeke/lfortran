@@ -3267,7 +3267,7 @@ asr = true
 
 [[test]]
 filename = "empty_fixed_form.f"
-run = true
+ast = true
 
 [[test]]
 filename = "../integration_tests/loc_01.f90"

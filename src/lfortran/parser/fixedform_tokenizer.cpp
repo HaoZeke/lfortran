@@ -2397,10 +2397,9 @@ struct FixedFormRecursiveDescent {
             lex_global_scope_item(cur, continue_compilation, diagnostics);
         }
         if (!any) {
-            push_token_no_advance(cur, "program");
-            push_token_no_advance_token(cur, "implicit_program_lfortran", TK_NAME);
-            push_token_no_advance(cur, "\n");
-            push_token_no_advance(cur, "end");
+            // A newline is an empty translation unit. A synthetic program
+            // would define `main`, and two empty f2py wrappers then fail
+            // to link.
             push_token_no_advance(cur, "\n");
         }
         push_token_no_advance(cur, "EOF");
