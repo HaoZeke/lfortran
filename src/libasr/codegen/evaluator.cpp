@@ -1,8 +1,11 @@
 #include <algorithm>
 #include <cstdlib>
+#include <functional>
 #include <iostream>
 #include <fstream>
 #include <optional>
+#include <set>
+#include <utility>
 
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/ADT/STLExtras.h>
@@ -34,6 +37,7 @@
 #include <llvm/ADT/STLExtras.h>
 #include <llvm/ADT/StringMap.h>
 #include <llvm/IR/Verifier.h>
+#include <llvm/Transforms/Utils/Cloning.h>
 #include <llvm/MC/MCSubtargetInfo.h>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Target/TargetMachine.h>
@@ -1945,6 +1949,277 @@ static void lower_avx512_scalar_fp_selects(llvm::Module &m) {
     }
 }
 
+// A strict `s = s + a*b` loop is not vectorized: the reduction is not
+// associative, and runtime unrolling is off. gfortran -O3 still multiplies
+// two products at a time and adds those lanes in order, which is the same
+// rounding as the scalar loop. Do that here, and only when the fmul and
+// fadd carry no fast-math flags.
+static bool widen_strict_product_reduction(llvm::BasicBlock *loop) {
+    if (loop == nullptr || loop->getTerminator() == nullptr) {
+        return false;
+    }
+    auto *br = llvm::dyn_cast<llvm::BranchInst>(loop->getTerminator());
+    if (br == nullptr || !br->isConditional()) {
+        return false;
+    }
+    bool back_on_true = br->getSuccessor(0) == loop;
+    bool back_on_false = br->getSuccessor(1) == loop;
+    if (back_on_true == back_on_false) {
+        return false;
+    }
+    llvm::BasicBlock *exit = back_on_true ? br->getSuccessor(1) : br->getSuccessor(0);
+    auto *cmp = llvm::dyn_cast<llvm::ICmpInst>(br->getCondition());
+    if (cmp == nullptr || cmp->getPredicate() != llvm::ICmpInst::ICMP_EQ) {
+        return false;
+    }
+    llvm::PHINode *iv = nullptr;
+    llvm::PHINode *acc = nullptr;
+    for (llvm::PHINode &phi : loop->phis()) {
+        if (phi.getNumIncomingValues() != 2) {
+            return false;
+        }
+        if (phi.getType()->isIntegerTy(64) && iv == nullptr) {
+            iv = &phi;
+        } else if (phi.getType()->isDoubleTy() && acc == nullptr) {
+            acc = &phi;
+        } else {
+            return false;
+        }
+    }
+    if (iv == nullptr || acc == nullptr) {
+        return false;
+    }
+    if (iv->getBasicBlockIndex(loop) < 0 || acc->getBasicBlockIndex(loop) < 0) {
+        return false;
+    }
+    int iv_pre = iv->getBasicBlockIndex(loop) == 0 ? 1 : 0;
+    llvm::BasicBlock *pre = iv->getIncomingBlock(iv_pre);
+    if (acc->getIncomingBlock(iv_pre) != pre) {
+        // The two phis must share the same predecessor order.
+        int acc_pre = acc->getBasicBlockIndex(loop) == 0 ? 1 : 0;
+        if (acc->getIncomingBlock(acc_pre) != pre) {
+            return false;
+        }
+    }
+    llvm::Value *start = iv->getIncomingValueForBlock(pre);
+    llvm::Value *start_acc = acc->getIncomingValueForBlock(pre);
+    auto *step = llvm::dyn_cast<llvm::BinaryOperator>(iv->getIncomingValueForBlock(loop));
+    if (step == nullptr || step->getOpcode() != llvm::Instruction::Add) {
+        return false;
+    }
+    if (step->getOperand(0) != iv || !llvm::isa<llvm::ConstantInt>(step->getOperand(1))
+            || !llvm::cast<llvm::ConstantInt>(step->getOperand(1))->isOne()) {
+        return false;
+    }
+    auto *sum = llvm::dyn_cast<llvm::BinaryOperator>(acc->getIncomingValueForBlock(loop));
+    if (sum == nullptr || sum->getOpcode() != llvm::Instruction::FAdd) {
+        return false;
+    }
+    if (sum->getFastMathFlags().any() || sum->getOperand(0) != acc) {
+        return false;
+    }
+    auto *prod = llvm::dyn_cast<llvm::BinaryOperator>(sum->getOperand(1));
+    if (prod == nullptr || prod->getOpcode() != llvm::Instruction::FMul
+            || prod->getFastMathFlags().any() || !prod->getType()->isDoubleTy()) {
+        return false;
+    }
+    if (!llvm::isa<llvm::LoadInst>(prod->getOperand(0))
+            || !llvm::isa<llvm::LoadInst>(prod->getOperand(1))) {
+        return false;
+    }
+    llvm::Value *trip = nullptr;
+    if (cmp->getOperand(0) == iv) {
+        trip = cmp->getOperand(1);
+    } else if (cmp->getOperand(1) == iv) {
+        trip = cmp->getOperand(0);
+    } else {
+        return false;
+    }
+    if (llvm::isa<llvm::Instruction>(trip)
+            && llvm::cast<llvm::Instruction>(trip)->getParent() == loop) {
+        return false;
+    }
+    if (start->getType() != iv->getType() || trip->getType() != iv->getType()) {
+        return false;
+    }
+    for (llvm::Instruction &inst : *loop) {
+        if (inst.mayWriteToMemory() || llvm::isa<llvm::CallBase>(inst)) {
+            return false;
+        }
+    }
+    for (llvm::Instruction &inst : *loop) {
+        for (llvm::User *user : inst.users()) {
+            auto *use = llvm::dyn_cast<llvm::Instruction>(user);
+            if (use == nullptr) {
+                return false;
+            }
+            if (use->getParent() == loop) {
+                continue;
+            }
+            if (!llvm::isa<llvm::PHINode>(use) || use->getParent() != exit) {
+                return false;
+            }
+        }
+    }
+    for (llvm::PHINode &phi : exit->phis()) {
+        llvm::Value *incoming = phi.getIncomingValueForBlock(loop);
+        if (incoming == sum || incoming == iv || incoming == step) {
+            continue;
+        }
+        if (auto *def = llvm::dyn_cast<llvm::Instruction>(incoming)) {
+            if (def->getParent() == loop) {
+                return false;
+            }
+        }
+    }
+
+    llvm::Function *fn = loop->getParent();
+    llvm::LLVMContext &ctx = fn->getContext();
+    llvm::BasicBlock *head = llvm::BasicBlock::Create(ctx, "dot2.head", fn, loop);
+    llvm::BasicBlock *vec = llvm::BasicBlock::Create(ctx, "dot2.vec", fn, loop);
+    llvm::BasicBlock *mid = llvm::BasicBlock::Create(ctx, "dot2.mid", fn, loop);
+    llvm::BasicBlock *once = llvm::BasicBlock::Create(ctx, "dot2.once", fn, loop);
+    llvm::BasicBlock *join = llvm::BasicBlock::Create(ctx, "dot2.join", fn, loop);
+    llvm::Type *i64 = iv->getType();
+    llvm::Constant *one = llvm::ConstantInt::get(i64, 1);
+    llvm::Constant *two = llvm::ConstantInt::get(i64, 2);
+    llvm::Constant *even_mask = llvm::ConstantInt::get(i64, ~uint64_t(1));
+
+    llvm::IRBuilder<> hb(head);
+    llvm::Value *niter = hb.CreateAdd(hb.CreateSub(trip, start), one);
+    llvm::Value *nvec = hb.CreateAnd(niter, even_mask);
+    llvm::Value *vec_end = hb.CreateAdd(start, nvec);
+    llvm::Value *trip_plus = hb.CreateAdd(trip, one);
+    hb.CreateCondBr(hb.CreateICmpNE(nvec, llvm::ConstantInt::get(i64, 0)), vec, mid);
+
+    auto *ivv = llvm::PHINode::Create(i64, 2, "dot2.iv", vec);
+    auto *accv = llvm::PHINode::Create(acc->getType(), 2, "dot2.acc", vec);
+    ivv->addIncoming(start, head);
+    accv->addIncoming(start_acc, head);
+    llvm::IRBuilder<> vb(vec);
+    auto clone_at = [&](llvm::IRBuilder<> &b, llvm::Value *lane)
+            -> std::pair<llvm::Value*, llvm::Value*> {
+        std::set<llvm::Instruction*> deps;
+        std::function<void(llvm::Value*)> walk = [&](llvm::Value *v) {
+            auto *inst = llvm::dyn_cast<llvm::Instruction>(v);
+            if (inst == nullptr || inst->getParent() != loop) {
+                return;
+            }
+            if (!deps.insert(inst).second) {
+                return;
+            }
+            for (llvm::Use &op : inst->operands()) {
+                walk(op.get());
+            }
+        };
+        walk(prod->getOperand(0));
+        walk(prod->getOperand(1));
+        llvm::ValueToValueMapTy vm;
+        vm[iv] = lane;
+        llvm::Value *left = nullptr;
+        llvm::Value *right = nullptr;
+        for (llvm::Instruction &inst : *loop) {
+            // The induction phi is remapped to the lane value. Cloning it
+            // would put a phi in the middle of the block.
+            if (!deps.count(&inst) || llvm::isa<llvm::PHINode>(&inst)) {
+                continue;
+            }
+            llvm::Instruction *cloned = inst.clone();
+            vm[&inst] = cloned;
+            llvm::RemapInstruction(cloned, vm,
+                llvm::RF_NoModuleLevelChanges | llvm::RF_IgnoreMissingLocals);
+            b.Insert(cloned);
+            if (&inst == prod->getOperand(0)) {
+                left = cloned;
+            }
+            if (&inst == prod->getOperand(1)) {
+                right = cloned;
+            }
+        }
+        return {left, right};
+    };
+    llvm::Value *lane1 = vb.CreateAdd(ivv, one);
+    auto pair0 = clone_at(vb, ivv);
+    auto pair1 = clone_at(vb, lane1);
+    if (pair0.first == nullptr || pair0.second == nullptr
+            || pair1.first == nullptr || pair1.second == nullptr) {
+        join->eraseFromParent();
+        once->eraseFromParent();
+        mid->eraseFromParent();
+        vec->eraseFromParent();
+        head->eraseFromParent();
+        return false;
+    }
+    llvm::Type *v2ty = llvm::VectorType::get(prod->getType(), 2);
+    llvm::Value *undef = llvm::UndefValue::get(v2ty);
+    llvm::Value *lhs = vb.CreateInsertElement(undef, pair0.first, vb.getInt32(0));
+    lhs = vb.CreateInsertElement(lhs, pair1.first, vb.getInt32(1));
+    llvm::Value *rhs = vb.CreateInsertElement(undef, pair0.second, vb.getInt32(0));
+    rhs = vb.CreateInsertElement(rhs, pair1.second, vb.getInt32(1));
+    llvm::Value *wide = vb.CreateFMul(lhs, rhs);
+    llvm::Value *p0 = vb.CreateExtractElement(wide, vb.getInt32(0));
+    llvm::Value *p1 = vb.CreateExtractElement(wide, vb.getInt32(1));
+    llvm::Value *s1 = vb.CreateFAdd(accv, p0);
+    llvm::Value *s2 = vb.CreateFAdd(s1, p1);
+    llvm::Value *ivn = vb.CreateAdd(ivv, two);
+    vb.CreateCondBr(vb.CreateICmpEQ(ivn, vec_end), mid, vec);
+    ivv->addIncoming(ivn, vec);
+    accv->addIncoming(s2, vec);
+
+    auto *ivm = llvm::PHINode::Create(i64, 2, "dot2.iv.mid", mid);
+    auto *accm = llvm::PHINode::Create(acc->getType(), 2, "dot2.acc.mid", mid);
+    ivm->addIncoming(start, head);
+    ivm->addIncoming(vec_end, vec);
+    accm->addIncoming(start_acc, head);
+    accm->addIncoming(s2, vec);
+    llvm::IRBuilder<> mb(mid);
+    mb.CreateCondBr(mb.CreateICmpSGT(ivm, trip), join, once);
+
+    llvm::IRBuilder<> ob(once);
+    auto once_pair = clone_at(ob, ivm);
+    if (once_pair.first == nullptr || once_pair.second == nullptr) {
+        join->eraseFromParent();
+        once->eraseFromParent();
+        mid->eraseFromParent();
+        vec->eraseFromParent();
+        head->eraseFromParent();
+        return false;
+    }
+    llvm::Value *ps = ob.CreateFMul(once_pair.first, once_pair.second);
+    llvm::Value *ss = ob.CreateFAdd(accm, ps);
+    ob.CreateBr(join);
+
+    auto *accj = llvm::PHINode::Create(acc->getType(), 2, "dot2.acc.join", join);
+    accj->addIncoming(accm, mid);
+    accj->addIncoming(ss, once);
+    llvm::IRBuilder<> jb(join);
+    jb.CreateBr(exit);
+
+    auto *prebr = llvm::cast<llvm::BranchInst>(pre->getTerminator());
+    for (unsigned i = 0; i < prebr->getNumSuccessors(); ++i) {
+        if (prebr->getSuccessor(i) == loop) {
+            prebr->setSuccessor(i, head);
+        }
+    }
+    for (llvm::PHINode &phi : exit->phis()) {
+        int idx = phi.getBasicBlockIndex(loop);
+        if (idx < 0) {
+            continue;
+        }
+        llvm::Value *incoming = phi.getIncomingValue(idx);
+        if (incoming == sum) {
+            phi.setIncomingValue(idx, accj);
+        } else if (incoming == iv) {
+            phi.setIncomingValue(idx, trip);
+        } else if (incoming == step) {
+            phi.setIncomingValue(idx, trip_plus);
+        }
+        phi.setIncomingBlock(idx, join);
+    }
+    loop->eraseFromParent();
+    return true;
+}
+
 void LLVMEvaluator::opt(llvm::Module &m) {
     configure_module(m);
     disable_load_pre();
@@ -2118,6 +2393,21 @@ void LLVMEvaluator::opt(llvm::Module &m) {
     // every call.
     eliminate_unused_alloc_pairs(m);
     lower_avx512_scalar_fp_selects(m);
+    for (llvm::Function &fn : m) {
+        if (fn.isDeclaration()) {
+            continue;
+        }
+        bool again = true;
+        while (again) {
+            again = false;
+            for (llvm::BasicBlock &bb : fn) {
+                if (widen_strict_product_reduction(&bb)) {
+                    again = true;
+                    break;
+                }
+            }
+        }
+    }
 }
 
 std::string LLVMEvaluator::module_to_string(llvm::Module &m) {

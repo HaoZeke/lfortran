@@ -8016,6 +8016,11 @@ RUN(NAME givens_rota_01 LABELS gfortran llvm EXTRA_ARGS --fast)
 RUN(NAME scale_factor_01 LABELS gfortran llvm EXTRA_ARGS --fast)
 # r1mpyq's two Givens tests. --fast --no-fast-math must keep both results.
 RUN(NAME givens_select_01 LABELS gfortran llvm EXTRA_ARGS --fast --no-fast-math)
+# sin(p*i)*cos(p*j). Strict math must keep libm values and p-order sums.
+RUN(NAME sin_cos_hoist_01 LABELS gfortran llvm EXTRA_ARGS --fast --no-fast-math)
+# In-order product reduction, contiguous and strided. Bits match the
+# scalar sum under --fast --no-fast-math.
+RUN(NAME dot_inorder_01 LABELS gfortran llvm EXTRA_ARGS --fast --no-fast-math)
 # Strided inner product. --fast must keep the sum, including when the
 # strided operand is not gathered.
 RUN(NAME matmul_strided_01 LABELS gfortran llvm EXTRA_ARGS --fast)

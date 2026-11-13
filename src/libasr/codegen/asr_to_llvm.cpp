@@ -11761,6 +11761,61 @@ public:
         }
     }
 
+    // `_lfortran_ssin` and the other three wrappers below only forward to
+    // libm. Fortran `sin` and `cos` are pure, but an unmarked call is a
+    // side effect, so LICM leaves `cos(p*j)` inside the `i` loop. gfortran
+    // at `-O3` hoists that call and calls libm directly. Marking the
+    // wrapper pure gives the fast-math path the same hoist. A strict call
+    // is retargeted at `llvm.sin` / `llvm.cos`, which select the same libm
+    // entry and are pure by definition. The values do not change.
+    void mark_elemental_libm_pure() {
+        struct Libm {
+            const char *name;
+            llvm::Intrinsic::ID id;
+        };
+        static const Libm libm[] = {
+            {"_lfortran_ssin", llvm::Intrinsic::sin},
+            {"_lfortran_dsin", llvm::Intrinsic::sin},
+            {"_lfortran_scos", llvm::Intrinsic::cos},
+            {"_lfortran_dcos", llvm::Intrinsic::cos},
+        };
+        for (const Libm &entry : libm) {
+            llvm::Function *f = module->getFunction(entry.name);
+            if (f == nullptr) {
+                continue;
+            }
+            f->setDoesNotAccessMemory();
+            f->setDoesNotThrow();
+#if LLVM_VERSION_MAJOR >= 9
+            f->addFnAttr(llvm::Attribute::WillReturn);
+#endif
+            std::vector<llvm::CallInst*> strict_calls;
+            for (llvm::User *user : f->users()) {
+                llvm::CallInst *call = llvm::dyn_cast<llvm::CallInst>(user);
+                // A fast-math call stays on the runtime wrapper.
+                if (call != nullptr && call->getCalledFunction() == f &&
+                        !call->isFast()) {
+                    strict_calls.push_back(call);
+                }
+            }
+            for (llvm::CallInst *call : strict_calls) {
+                llvm::Function *intrinsic = llvm::Intrinsic::getDeclaration(
+                    module.get(), entry.id, {call->getType()});
+                llvm::IRBuilder<> builder(call);
+                llvm::CallInst *lowered = builder.CreateCall(
+                    intrinsic, {call->getArgOperand(0)});
+                if (call->isTailCall()) {
+                    lowered->setTailCall();
+                }
+                call->replaceAllUsesWith(lowered);
+                call->eraseFromParent();
+            }
+            if (f->use_empty()) {
+                f->eraseFromParent();
+            }
+        }
+    }
+
     void add_tbaa_metadata() {
         if (tbaa_functions.empty()) {
             return;
@@ -32556,6 +32611,7 @@ Result<std::unique_ptr<LLVMModule>> asr_to_llvm(ASR::TranslationUnit_t &asr,
         v.add_tbaa_metadata();
         v.mark_fresh_allocations_noalias();
         v.mark_allocator_accessors_pure();
+        v.mark_elemental_libm_pure();
     } catch (const CodeGenError &e) {
         Error error;
         diagnostics.diagnostics.push_back(e.d);
