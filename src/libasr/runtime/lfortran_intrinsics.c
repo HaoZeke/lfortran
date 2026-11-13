@@ -7430,6 +7430,40 @@ LFORTRAN_API double_complex_t _lfortran_zexp(double_complex_t x)
     return cexp(x);
 }
 
+// complex(10) unary math. The value is two long doubles, passed by pointer
+// because an x87 complex is not a C complex passed by value.
+#define LFORTRAN_C80_UNARY(name, fn) \
+LFORTRAN_API void _lfortran_c80_##name(struct _lfortran_complex_80 *x, \
+        struct _lfortran_complex_80 *result) { \
+    long double complex z = x->re + x->im * I; \
+    long double complex r = fn(z); \
+    result->re = creall(r); \
+    result->im = cimagl(r); \
+}
+LFORTRAN_C80_UNARY(exp, cexpl)
+LFORTRAN_C80_UNARY(log, clogl)
+LFORTRAN_C80_UNARY(sqrt, csqrtl)
+LFORTRAN_C80_UNARY(sin, csinl)
+LFORTRAN_C80_UNARY(cos, ccosl)
+LFORTRAN_C80_UNARY(tan, ctanl)
+LFORTRAN_C80_UNARY(asin, casinl)
+LFORTRAN_C80_UNARY(acos, cacosl)
+LFORTRAN_C80_UNARY(atan, catanl)
+LFORTRAN_C80_UNARY(sinh, csinhl)
+LFORTRAN_C80_UNARY(cosh, ccoshl)
+LFORTRAN_C80_UNARY(tanh, ctanhl)
+LFORTRAN_C80_UNARY(asinh, casinhl)
+LFORTRAN_C80_UNARY(acosh, cacoshl)
+LFORTRAN_C80_UNARY(atanh, catanhl)
+#undef LFORTRAN_C80_UNARY
+
+LFORTRAN_API void _lfortran_c80_abs(struct _lfortran_complex_80 *x,
+        long double *result)
+{
+    *result = cabsl(x->re + x->im * I);
+}
+
+
 // log -------------------------------------------------------------------------
 
 LFORTRAN_API float _lfortran_slog(float x)

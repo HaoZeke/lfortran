@@ -341,6 +341,13 @@ static inline ASR::expr_t* instantiate_functions(Allocator &al,
             } else if (complex_kind == 16) {
                 c_func_name = "_lfortran_c128_" + new_name;
                 by_reference = true;
+            } else if (complex_kind == 10) {
+                // The double-complex entry takes a pair of doubles. Calling
+                // it with a complex(10) value is a bitcast the verifier
+                // rejects. Pass the extended value through a pointer, as
+                // complex(16) does.
+                c_func_name = "_lfortran_c80_" + new_name;
+                by_reference = true;
             } else {
                 c_func_name = "_lfortran_z" + new_name;
             }
