@@ -1888,6 +1888,63 @@ static void narrow_gather_indices(llvm::Module& m) {
     }
 }
 
+// AVX-512 lowers a scalar select to a merging masked vmovsd. In r1mpyq that
+// move is the hot instruction: both sides of the Givens test are already
+// computed, and the mask merge costs more than the arithmetic. A branch
+// keeps the value in an xmm. Vector selects are left alone.
+static void lower_avx512_scalar_fp_selects(llvm::Function &fn) {
+    if (fn.empty() || !fn.hasFnAttribute("target-features")
+            || fn.getFnAttribute("target-features").getValueAsString().find(
+                "+avx512f") == llvm::StringRef::npos) {
+        return;
+    }
+    llvm::SmallVector<llvm::SelectInst*, 8> selects;
+    for (llvm::BasicBlock &bb : fn) {
+        for (llvm::Instruction &inst : bb) {
+            auto *sel = llvm::dyn_cast<llvm::SelectInst>(&inst);
+            if (sel == nullptr) {
+                continue;
+            }
+            llvm::Type *ty = sel->getType();
+            if (!ty->isFloatTy() && !ty->isDoubleTy()) {
+                continue;
+            }
+            if (!sel->getCondition()->getType()->isIntegerTy(1)) {
+                continue;
+            }
+            selects.push_back(sel);
+        }
+    }
+    for (llvm::SelectInst *sel : llvm::reverse(selects)) {
+        llvm::Function *parent = sel->getFunction();
+        llvm::BasicBlock *head = sel->getParent();
+        llvm::BasicBlock *tail = head->splitBasicBlock(sel, "select.join");
+        head->getTerminator()->eraseFromParent();
+        llvm::BasicBlock *when_true = llvm::BasicBlock::Create(
+            parent->getContext(), "select.true", parent, tail);
+        llvm::BasicBlock *when_false = llvm::BasicBlock::Create(
+            parent->getContext(), "select.false", parent, tail);
+        llvm::IRBuilder<> builder(head);
+        builder.CreateCondBr(sel->getCondition(), when_true, when_false);
+        builder.SetInsertPoint(when_true);
+        builder.CreateBr(tail);
+        builder.SetInsertPoint(when_false);
+        builder.CreateBr(tail);
+        llvm::PHINode *phi = llvm::PHINode::Create(
+            sel->getType(), 2, "select.phi", sel);
+        phi->addIncoming(sel->getTrueValue(), when_true);
+        phi->addIncoming(sel->getFalseValue(), when_false);
+        sel->replaceAllUsesWith(phi);
+        sel->eraseFromParent();
+    }
+}
+
+static void lower_avx512_scalar_fp_selects(llvm::Module &m) {
+    for (llvm::Function &fn : m) {
+        lower_avx512_scalar_fp_selects(fn);
+    }
+}
+
 void LLVMEvaluator::opt(llvm::Module &m) {
     configure_module(m);
     disable_load_pre();
@@ -2060,6 +2117,7 @@ void LLVMEvaluator::opt(llvm::Module &m) {
     // recognized malloc, so the pair survives -O3. d1mach pays for that on
     // every call.
     eliminate_unused_alloc_pairs(m);
+    lower_avx512_scalar_fp_selects(m);
 }
 
 std::string LLVMEvaluator::module_to_string(llvm::Module &m) {
