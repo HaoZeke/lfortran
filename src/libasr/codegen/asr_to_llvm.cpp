@@ -31258,7 +31258,7 @@ public:
                         llvm::BasicBlock *elseBB = llvm::BasicBlock::Create(context, "else");
 
                         llvm::Value* cond = builder->CreateICmpEQ(llvm_dim,
-                            llvm::ConstantInt::get(llvm::Type::getInt32Ty(context), llvm::APInt(32, i + 1)));
+                            llvm::ConstantInt::get(llvm_dim->getType(), i + 1, true));
                         builder->CreateCondBr(cond, thenBB, elseBB);
                         builder->SetInsertPoint(thenBB);
                         {

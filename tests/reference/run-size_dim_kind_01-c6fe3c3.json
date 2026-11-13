@@ -1,0 +1,13 @@
+{
+    "basename": "run-size_dim_kind_01-c6fe3c3",
+    "cmd": "lfortran --no-color {infile}",
+    "infile": "tests/../integration_tests/size_dim_kind_01.f90",
+    "infile_hash": "a2e5b85c699d0df723553732d1404bb2e90436f807795f3018b3d20a",
+    "outfile": null,
+    "outfile_hash": null,
+    "stdout": "run-size_dim_kind_01-c6fe3c3.stdout",
+    "stdout_hash": "66a02dbf2489a482a6bacad0c34674b7f315936ad5824c0bf794aaad",
+    "stderr": null,
+    "stderr_hash": null,
+    "returncode": 0
+}
