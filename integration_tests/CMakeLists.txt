@@ -7964,6 +7964,11 @@ RUN(NAME integer_kind_16_boz_nml LABELS gfortran llvm)
 RUN(NAME integer_kind_16_literal LABELS gfortran llvm)
 RUN(NAME integer_kind_16_pow LABELS gfortran llvm)
 RUN(NAME integer_kind_16_read LABELS gfortran llvm)
+RUN(NAME werror_unknown_01 LABELS gfortran llvm)
+if (TEST werror_unknown_01)
+    set_tests_properties(werror_unknown_01 PROPERTIES
+        ENVIRONMENT "LFORTRAN=${CMAKE_Fortran_COMPILER}")
+endif()
 
 if (LFORTRAN_SMOKE)
     get_property(smoke_tests DIRECTORY PROPERTY TESTS)
