@@ -5132,19 +5132,43 @@ public:
                     arg_ptr = llvm_symtab_fn_arg[h];
                 }
                 LCOMPILERS_ASSERT(arg_ptr != nullptr);
-                // A character dummy passed as a data pointer, and an
-                // optional descriptor array, keep a local descriptor. That
-                // descriptor is always allocated. Its data pointer is null
-                // when the argument is absent. Every other optional is the
-                // pointer itself: a scalar, a callback, a VALUE dummy, or
-                // the address of an allocatable.
-                llvm::Type* pointee = arg_ptr->getType()->isPointerTy()
-                    ? arg_ptr->getType()->getPointerElementType() : nullptr;
-                bool data_pointer_in_descriptor = pointee == llvm_utils->string_descriptor
-                    || (pointee && arr_descr->is_array_descriptor_type(pointee));
+                // LLVM 16 prints every pointer as `ptr` and
+                // getPointerElementType() aborts on that opaque pointer.
+                // Which pointer is null is a property of the ASR type, not
+                // of the LLVM element type. A character dummy and an
+                // optional descriptor array keep a local descriptor that is
+                // always allocated; its data pointer is null when the
+                // argument is absent. An allocatable or pointer array, a
+                // scalar, a procedure, and a VALUE dummy are absent when
+                // the pointer itself is null.
+                ASR::ttype_t* ty = arg_var->m_type;
+                bool alloc_or_pointer = ASRUtils::is_allocatable(ty) ||
+                    ASRUtils::is_pointer(ty);
+                bool descriptor_array = ASRUtils::is_array(ty) &&
+                    (ASRUtils::extract_physical_type(ty) ==
+                        ASR::array_physical_typeType::DescriptorArray ||
+                     ASRUtils::extract_physical_type(ty) ==
+                        ASR::array_physical_typeType::AssumedRankArray);
+                // A non-allocatable character dummy keeps a local descriptor
+                // that is always allocated; its data pointer is null when the
+                // argument is absent. An allocatable or pointer character is
+                // absent when the descriptor pointer itself is null, except
+                // a host-associated one: the frame slot is always allocated
+                // and the data pointer carries presence.
+                bool character_data = ASRUtils::is_character(*ty) &&
+                    !alloc_or_pointer &&
+                    ASRUtils::get_string_type(ty)->m_physical_type ==
+                        ASR::string_physical_typeType::DescriptorString;
+                bool character_host = ASRUtils::is_character(*ty) &&
+                    ASRUtils::get_string_type(ty)->m_physical_type ==
+                        ASR::string_physical_typeType::DescriptorString;
+                bool host = ASRUtils::is_host_associated(*arg_var);
                 auto null_pointer = [](llvm::Type* ptr_ty) {
                     return llvm::ConstantPointerNull::get(
                         llvm::cast<llvm::PointerType>(ptr_ty));
+                };
+                auto pointer_present = [&](llvm::Value* p) {
+                    return builder->CreateICmpNE(p, null_pointer(p->getType()));
                 };
                 auto descriptor_data_present = [&](llvm::Type* desc_ty,
                         llvm::Value* desc) {
@@ -5154,59 +5178,58 @@ public:
                     llvm::Value* loaded = llvm_utils->CreateLoad2(field_type, field);
                     return builder->CreateICmpNE(loaded, null_pointer(field_type));
                 };
-                // A host-associated optional array is a pointer to the
-                // descriptor pointer. The slot itself is always allocated.
-                // The descriptor's data pointer is null when the array is
-                // absent.
-                if (pointee && pointee->isPointerTy() &&
-                        arr_descr->is_array_descriptor_type(
-                            pointee->getPointerElementType())) {
-                    if (!ASRUtils::is_host_associated(*arg_var)) {
-                        // An optional allocatable or pointer array is absent
-                        // exactly when this argument pointer is null. Its
-                        // data pointer is also null after an intent(out)
-                        // deallocation, and the dummy is still present.
-                        tmp = builder->CreateICmpNE(arg_ptr,
-                            null_pointer(arg_ptr->getType()));
-                    } else {
-                        // A host-associated array is reached through a view
-                        // that is always allocated. The descriptor's data
-                        // pointer is null when the host dummy is absent.
-                        llvm::Type* desc_ty = pointee->getPointerElementType();
-                        llvm::Value* desc = llvm_utils->CreateLoad2(pointee, arg_ptr);
-                        llvm::Value* desc_is_null = builder->CreateICmpEQ(
-                            desc, null_pointer(pointee));
-                        llvm::Function* fn = builder->GetInsertBlock()->getParent();
-                        llvm::BasicBlock* cur = builder->GetInsertBlock();
-                        llvm::BasicBlock* live = llvm::BasicBlock::Create(
-                            context, "present_desc", fn);
-                        llvm::BasicBlock* merge = llvm::BasicBlock::Create(
-                            context, "present_merge", fn);
-                        builder->CreateCondBr(desc_is_null, merge, live);
-                        builder->SetInsertPoint(live);
-                        llvm::Value* data_present = descriptor_data_present(
-                            desc_ty, desc);
-                        builder->CreateBr(merge);
-                        builder->SetInsertPoint(merge);
-                        llvm::PHINode* phi = builder->CreatePHI(
-                            llvm::Type::getInt1Ty(context), 2);
-                        phi->addIncoming(llvm::ConstantInt::getFalse(context), cur);
-                        phi->addIncoming(data_present, live);
-                        tmp = phi;
-                    }
-                } else if (data_pointer_in_descriptor) {
-                    tmp = descriptor_data_present(pointee, arg_ptr);
-                } else if (ASR::is_a<ASR::CPtr_t>(*arg_var->m_type) &&
-                        LLVM::is_cptr_dummy_in_local_storage(*arg_var) &&
-                        pointee && pointee->isPointerTy()) {
+                if ((descriptor_array || character_host) && host) {
+                    // A host-associated array or character is a pointer to the
+                    // descriptor pointer. The slot is always allocated. The
+                    // descriptor, or its data pointer, is null when the host
+                    // dummy is absent.
+                    llvm::Type* desc_ty = character_host
+                        ? llvm_utils->string_descriptor
+                        : llvm_utils->get_type_from_ttype_t_util(
+                            arg_expr, ASRUtils::type_get_past_allocatable_pointer(ty),
+                            module.get());
+                    llvm::Value* desc = llvm_utils->CreateLoad2(
+                        desc_ty->getPointerTo(), arg_ptr);
+                    llvm::Value* desc_is_null = builder->CreateICmpEQ(
+                        desc, null_pointer(desc->getType()));
+                    llvm::Function* fn = builder->GetInsertBlock()->getParent();
+                    llvm::BasicBlock* cur = builder->GetInsertBlock();
+                    llvm::BasicBlock* live = llvm::BasicBlock::Create(
+                        context, "present_desc", fn);
+                    llvm::BasicBlock* merge = llvm::BasicBlock::Create(
+                        context, "present_merge", fn);
+                    builder->CreateCondBr(desc_is_null, merge, live);
+                    builder->SetInsertPoint(live);
+                    llvm::Value* data_present = descriptor_data_present(desc_ty, desc);
+                    builder->CreateBr(merge);
+                    builder->SetInsertPoint(merge);
+                    llvm::PHINode* phi = builder->CreatePHI(
+                        llvm::Type::getInt1Ty(context), 2);
+                    phi->addIncoming(llvm::ConstantInt::getFalse(context), cur);
+                    phi->addIncoming(data_present, live);
+                    tmp = phi;
+                } else if (descriptor_array && alloc_or_pointer) {
+                    // An absent allocatable or pointer array is a null
+                    // argument. The descriptor pointer is that argument, so
+                    // loading it crashes when the argument was omitted.
+                    // Deallocating the data does not null this pointer.
+                    tmp = pointer_present(arg_ptr);
+                } else if (descriptor_array) {
+                    llvm::Type* desc_ty = llvm_utils->get_type_from_ttype_t_util(
+                        arg_expr, ASRUtils::type_get_past_allocatable_pointer(ty),
+                        module.get());
+                    tmp = descriptor_data_present(desc_ty, arg_ptr);
+                } else if (character_data) {
+                    tmp = descriptor_data_present(llvm_utils->string_descriptor, arg_ptr);
+                } else if (ASR::is_a<ASR::CPtr_t>(*ty) &&
+                        LLVM::is_cptr_dummy_in_local_storage(*arg_var)) {
                     // intent(in) type(c_ptr) is held as void**. The value,
                     // not the local slot, is null when the argument is absent.
                     llvm::Type* cptr_ty = llvm::Type::getVoidTy(context)->getPointerTo();
                     llvm::Value* loaded = llvm_utils->CreateLoad2(cptr_ty, arg_ptr);
-                    tmp = builder->CreateICmpNE(loaded, null_pointer(cptr_ty));
+                    tmp = pointer_present(loaded);
                 } else {
-                    tmp = builder->CreateICmpNE(arg_ptr,
-                        null_pointer(arg_ptr->getType()));
+                    tmp = pointer_present(arg_ptr);
                 }
                 break;
             }
