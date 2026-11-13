@@ -550,7 +550,7 @@ namespace IntrinsicElementalFunctionRegistry {
         {static_cast<int64_t>(IntrinsicElementalFunctions::Huge),
             {nullptr, &UnaryIntrinsicFunction::verify_args, &Huge::create_Huge}},
         {static_cast<int64_t>(IntrinsicElementalFunctions::Loc),
-            {nullptr, &UnaryIntrinsicFunction::verify_args, &Loc::create_Loc}},
+            {nullptr, &Loc::verify_args, &Loc::create_Loc}},
         {static_cast<int64_t>(IntrinsicElementalFunctions::SelectedIntKind),
             {&SelectedIntKind::instantiate_SelectedIntKind, &SelectedIntKind::verify_args, &SelectedIntKind::create_SelectedIntKind}},
         {static_cast<int64_t>(IntrinsicElementalFunctions::Present),
