@@ -9383,8 +9383,23 @@ public:
 
         ASRUtils::make_ArrayBroadcast_t_util(al, x.base.base.loc, target, value);
 
+        // Intrinsic assignment to an allocatable array from an array
+        // constructor allocates the left hand side (F2018 10.2.1.3). That
+        // does not depend on --realloc-lhs-arrays, which still gates other
+        // right hand sides such as a function result or matmul.
+        bool realloc_lhs = compiler_options.po.realloc_lhs_arrays;
+        if (!realloc_lhs && ASRUtils::is_allocatable(ASRUtils::expr_type(target))
+                && ASRUtils::is_array(ASRUtils::expr_type(target))) {
+            ASR::expr_t* rhs = value;
+            ASR::expr_t* rhs_value = ASRUtils::expr_value(rhs);
+            if (ASR::is_a<ASR::ArrayConstructor_t>(*rhs) ||
+                    (rhs_value != nullptr &&
+                     ASR::is_a<ASR::ArrayConstructor_t>(*rhs_value))) {
+                realloc_lhs = true;
+            }
+        }
         tmp = ASRUtils::make_Assignment_t_util(al, x.base.base.loc, target, value,
-                            overloaded_stmt, compiler_options.po.realloc_lhs_arrays, false);
+                            overloaded_stmt, realloc_lhs, false);
     }
 
     ASR::asr_t* create_CFPointer(const AST::SubroutineCall_t& x) {
