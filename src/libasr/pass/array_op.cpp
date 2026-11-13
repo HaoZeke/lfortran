@@ -935,6 +935,25 @@ class ReplacePlaceholder: public ASR::BaseExprReplacer<ReplacePlaceholder> {
 
 };
 
+// An optional array passed to an elemental procedure is absent as a
+// whole. Its elements are read only when it is present, and it has no
+// shape to check when it is not. There is no presence argument: the
+// pointer itself is null.
+static ASR::symbol_t* optional_array_var(ASR::expr_t* value) {
+    if (value == nullptr || !ASRUtils::is_array(ASRUtils::expr_type(value))) {
+        return nullptr;
+    }
+    ASR::expr_t* base = ASRUtils::get_past_array_physical_cast(value);
+    if (!ASR::is_a<ASR::Var_t>(*base)) {
+        return nullptr;
+    }
+    ASR::Variable_t* var = ASRUtils::expr_to_variable_or_null(base);
+    if (var == nullptr || var->m_presence != ASR::presenceType::Optional) {
+        return nullptr;
+    }
+    return &var->base;
+}
+
 class ArrayOpVisitor: public ASR::CallReplacerOnExpressionsVisitor<ArrayOpVisitor> {
     private:
 
@@ -946,7 +965,124 @@ class ArrayOpVisitor: public ASR::CallReplacerOnExpressionsVisitor<ArrayOpVisito
     bool bounds_checking;
     bool remove_original_stmt;
     const LCompilers::PassOptions& pass_options;
+    // Optional arrays this assignment already branched on, so the branch
+    // that knows one is present does not branch on it again.
+    std::set<ASR::symbol_t*> optional_array_known_present;
     inline static std::set<const ASR::Assignment_t*> debug_inserted;
+
+    // The first optional array actual of an elemental call in `expr` that
+    // this assignment has not already branched on.
+    ASR::symbol_t* find_optional_elemental_array(ASR::expr_t* expr) {
+        struct Finder : public ASR::BaseWalkVisitor<Finder> {
+            ArrayOpVisitor* self;
+            ASR::symbol_t* found;
+            explicit Finder(ArrayOpVisitor* self_) : self(self_), found(nullptr) {}
+            void visit_FunctionCall(const ASR::FunctionCall_t& x) {
+                if (found != nullptr) {
+                    return;
+                }
+                if (ASRUtils::is_elemental(x.m_name)) {
+                    ASR::symbol_t* fn = ASRUtils::symbol_get_past_external(x.m_name);
+                    ASR::Function_t* func = ASR::is_a<ASR::Function_t>(*fn)
+                        ? ASR::down_cast<ASR::Function_t>(fn) : nullptr;
+                    for (size_t i = 0; i < x.n_args; i++) {
+                        ASR::symbol_t* sym = optional_array_var(x.m_args[i].m_value);
+                        if (sym == nullptr ||
+                                self->optional_array_known_present.count(sym) > 0) {
+                            continue;
+                        }
+                        bool formal_optional = true;
+                        if (func != nullptr && i < func->n_args) {
+                            ASR::Variable_t* dummy = ASRUtils::expr_to_variable_or_null(
+                                func->m_args[i]);
+                            formal_optional = dummy != nullptr &&
+                                dummy->m_presence == ASR::presenceType::Optional;
+                        }
+                        if (formal_optional) {
+                            found = sym;
+                            return;
+                        }
+                    }
+                }
+                ASR::BaseWalkVisitor<Finder>::visit_FunctionCall(x);
+            }
+        };
+        Finder finder(this);
+        if (expr != nullptr) {
+            finder.visit_expr(*expr);
+        }
+        return finder.found;
+    }
+
+    void omit_optional_elemental_array(ASR::expr_t* expr, ASR::symbol_t* sym) {
+        struct Omitter : public ASR::BaseWalkVisitor<Omitter> {
+            ASR::symbol_t* sym;
+            explicit Omitter(ASR::symbol_t* sym_) : sym(sym_) {}
+            void visit_FunctionCall(const ASR::FunctionCall_t& x) {
+                ASR::FunctionCall_t* call = const_cast<ASR::FunctionCall_t*>(&x);
+                if (ASRUtils::is_elemental(call->m_name)) {
+                    for (size_t i = 0; i < call->n_args; i++) {
+                        if (optional_array_var(call->m_args[i].m_value) == sym) {
+                            call->m_args[i].m_value = nullptr;
+                        } else if (call->m_args[i].m_value != nullptr) {
+                            visit_expr(*call->m_args[i].m_value);
+                        }
+                    }
+                    return;
+                }
+                ASR::BaseWalkVisitor<Omitter>::visit_FunctionCall(x);
+            }
+        };
+        if (expr != nullptr) {
+            Omitter(sym).visit_expr(*expr);
+        }
+    }
+
+    // `if (present(array)) then` the assignment, which may index it,
+    // `else` the same assignment with that actual omitted. An absent
+    // array is a null pointer and must not be indexed or shape-checked.
+    bool split_absent_optional_array(const ASR::Assignment_t& x) {
+        ASR::symbol_t* sym = find_optional_elemental_array(x.m_value);
+        if (sym == nullptr) {
+            return false;
+        }
+        const Location& loc = x.base.base.loc;
+        ASRUtils::ExprStmtDuplicator duplicator(al);
+        ASR::stmt_t* present_stmt = duplicator.duplicate_stmt(
+            const_cast<ASR::stmt_t*>(&(x.base)));
+        ASR::stmt_t* absent_stmt = duplicator.duplicate_stmt(
+            const_cast<ASR::stmt_t*>(&(x.base)));
+        omit_optional_elemental_array(
+            ASR::down_cast<ASR::Assignment_t>(absent_stmt)->m_value, sym);
+
+        Vec<ASR::stmt_t*> saved;
+        saved.from_pointer_n_copy(al, pass_result.p, pass_result.size());
+        pass_result.n = 0;
+        pass_result.reserve(al, 1);
+        optional_array_known_present.insert(sym);
+        visit_stmt(*present_stmt);
+        optional_array_known_present.erase(sym);
+        Vec<ASR::stmt_t*> present_body;
+        present_body.from_pointer_n_copy(al, pass_result.p, pass_result.size());
+        pass_result.n = 0;
+        pass_result.reserve(al, 1);
+        visit_stmt(*absent_stmt);
+        Vec<ASR::stmt_t*> absent_body;
+        absent_body.from_pointer_n_copy(al, pass_result.p, pass_result.size());
+        pass_result.from_pointer_n_copy(al, saved.p, saved.size());
+
+        Vec<ASR::expr_t*> present_args;
+        present_args.reserve(al, 1);
+        present_args.push_back(al, ASRUtils::EXPR(ASR::make_Var_t(al, loc, sym)));
+        ASR::expr_t* is_present = ASRUtils::EXPR(ASR::make_IntrinsicElementalFunction_t(
+            al, loc, static_cast<int64_t>(ASRUtils::IntrinsicElementalFunctions::Present),
+            present_args.p, present_args.n, 0,
+            ASRUtils::TYPE(ASR::make_Logical_t(al, loc, 4)), nullptr));
+        pass_result.push_back(al, ASRUtils::STMT(ASR::make_If_t(al, loc, nullptr,
+            is_present, present_body.p, present_body.size(),
+            absent_body.p, absent_body.size())));
+        return true;
+    }
 
     public:
 
@@ -3413,6 +3549,9 @@ class ArrayOpVisitor: public ASR::CallReplacerOnExpressionsVisitor<ArrayOpVisito
             std::find(skip_exprs.begin(), skip_exprs.end(), xx.m_value->type) != skip_exprs.end() ||
             (ASRUtils::is_simd_array(xx.m_target) && ASRUtils::is_simd_array(xx.m_value)) ) {
             return ;
+        }
+        if (split_absent_optional_array(x)) {
+            return;
         }
         bool is_target_assumed_rank = (ASR::is_a<ASR::ArrayPhysicalCast_t>(*xx.m_target) && 
             ASR::down_cast<ASR::ArrayPhysicalCast_t>(xx.m_target)->m_old == ASR::array_physical_typeType::AssumedRankArray) 
