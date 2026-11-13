@@ -1,0 +1,13 @@
+{
+    "basename": "run-present_fast_01-d879591",
+    "cmd": "lfortran --no-color {infile}",
+    "infile": "tests/../integration_tests/present_fast_01.f90",
+    "infile_hash": "b0eb8ff791120de3e9c8dbecb640e3f8d44e1fe40fd7f8aa90894bc4",
+    "outfile": null,
+    "outfile_hash": null,
+    "stdout": "run-present_fast_01-d879591.stdout",
+    "stdout_hash": "66a02dbf2489a482a6bacad0c34674b7f315936ad5824c0bf794aaad",
+    "stderr": null,
+    "stderr_hash": null,
+    "returncode": 0
+}
