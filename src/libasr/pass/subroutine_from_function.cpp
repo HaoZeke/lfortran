@@ -1649,6 +1649,24 @@ class ReplaceFunctionCallWithSubroutineCallVisitor:
                 finalize_result_argument(al, target, current_scope,
                     pass_result);
             }
+            // An explicit-shape result is returned through a data pointer.
+            // Intrinsic assignment has to allocate an allocatable left hand
+            // side with that shape first (F2018 10.2.1.3); otherwise the
+            // pointer cast of the unallocated descriptor aborts.
+            if (!use_temp_var_for_return && ASR::is_a<ASR::Assignment_t>(xx)) {
+                ASR::Assignment_t* assignment = ASR::down_cast<ASR::Assignment_t>(&xx);
+                ASR::ttype_t* target_type = ASRUtils::expr_type(target);
+                ASR::ttype_t* value_type = ASRUtils::expr_type(value);
+                if (assignment->m_realloc_lhs &&
+                        ASRUtils::is_allocatable(target_type) &&
+                        ASRUtils::is_array(target_type) &&
+                        ASRUtils::is_array(value_type) &&
+                        !ASRUtils::is_allocatable(value_type) &&
+                        !ASRUtils::is_pointer(value_type)) {
+                    insert_allocate_stmt_for_array(al, target, value,
+                        &pass_result, nullptr, true);
+                }
+            }
             ASR::stmt_t* subrout_call = ASRUtils::STMT(ASRUtils::make_SubroutineCall_t_util(al, loc,
                 fc->m_name, fc->m_original_name, s_args.p, s_args.size(), fc->m_dt, nullptr, false, current_scope, std::nullopt, true));
             pass_result.push_back(al, subrout_call);
