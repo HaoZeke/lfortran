@@ -375,6 +375,7 @@ LFORTRAN_API void _lfortran_read_array_double(double *p, int array_size, int32_t
 LFORTRAN_API void _lfortran_read_array_complex_float(struct _lfortran_complex_32 *p, int array_size, int32_t stride, int32_t unit_num, int32_t *iostat);
 LFORTRAN_API void _lfortran_read_array_complex_double(struct _lfortran_complex_64 *p, int array_size, int32_t stride, int32_t unit_num, int32_t *iostat);
 LFORTRAN_API void _lfortran_read_array_complex_80(struct _lfortran_complex_80 *p, int array_size, int32_t stride, int32_t unit_num, int32_t *iostat);
+LFORTRAN_API void _lfortran_read_array_float80(long double *p, int array_size, int32_t stride, int32_t unit_num, int32_t *iostat);
 LFORTRAN_API void _lfortran_read_array_char(char *p, int64_t length, int array_size, int32_t unit_num, int32_t *iostat);
 LFORTRAN_API void _lfortran_read_char(char **p, int64_t p_len, int32_t unit_num, int32_t *iostat);
 LFORTRAN_API void _lfortran_string_write(lfortran_allocator_t* al, char **str_holder, bool is_allocatable, bool is_deferred,

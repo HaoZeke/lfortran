@@ -15245,6 +15245,84 @@ LFORTRAN_API void _lfortran_read_array_float(float *p, int array_size, int32_t s
     }
 }
 
+static int parse_fortran_long_double(char *buffer, int dmode, long double *val) {
+    convert_fortran_d_exponent(buffer);
+    normalize_numeric_input(buffer, dmode);
+    char *end = NULL;
+    *val = strtold(buffer, &end);
+    return end != buffer;
+}
+
+LFORTRAN_API void _lfortran_read_array_float80(long double *p, int array_size, int32_t stride, int32_t unit_num, int32_t *iostat)
+{
+    int dmode = _lfortran_get_decimal_mode(unit_num);
+    if (iostat) *iostat = 0;
+    if (stride == 0) {
+        if (iostat) { *iostat = 1; return; }
+        fprintf(stderr, "Error: Invalid zero stride in real(10) array read.\n");
+        exit(1);
+    }
+    char buffer[100];
+    if (unit_num == -1) {
+        use_stdin_char_mode();
+        for (int i = 0; i < array_size; i++) {
+            if (input_scan(stdin, "%99s", buffer) != 1) {
+                if (iostat) { *iostat = input_eof(stdin) ? -1 : 1; return; }
+                fprintf(stderr, "Error: Failed to read real(10) from stdin.\n");
+                exit(1);
+            }
+            long double val;
+            if (!parse_fortran_long_double(buffer, dmode, &val)) {
+                if (iostat) { *iostat = 1; return; }
+                fprintf(stderr, "Error: Invalid real(10) from stdin.\n");
+                exit(1);
+            }
+            p[(int64_t)i * (int64_t)stride] = val;
+        }
+        return;
+    }
+    bool unit_file_bin;
+    int access_id;
+    bool read_access_flag = true;
+    FILE* filep = get_file_pointer_from_unit(unit_num, &unit_file_bin, &access_id, &read_access_flag, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+    if (filep && !read_access_flag) {
+        if (iostat) { *iostat = 5007; return; }
+        fprintf(stderr, "Runtime Error: Read access not permitted for unit %d.\n", unit_num);
+        exit(1);
+    }
+    if (!filep) {
+        if (iostat) { *iostat = 1; return; }
+        printf("No file found with given unit\n");
+        exit(1);
+    }
+    if (unit_file_bin) {
+        for (int i = 0; i < array_size; i++) {
+            long double val;
+            if (fread(&val, sizeof(val), 1, filep) != 1) {
+                if (iostat) { *iostat = input_eof(filep) ? -1 : 1; return; }
+                fprintf(stderr, "Error: Failed to read real(10) from binary file.\n");
+                exit(1);
+            }
+            p[(int64_t)i * (int64_t)stride] = val;
+        }
+        return;
+    }
+    for (int i = 0; i < array_size; i++) {
+        if (input_scan(filep, "%99s", buffer) != 1) {
+            if (iostat) { *iostat = input_eof(filep) ? -1 : 1; return; }
+            fprintf(stderr, "Error: Failed to read real(10) from file.\n");
+            exit(1);
+        }
+        long double val;
+        if (!parse_fortran_long_double(buffer, dmode, &val)) {
+            if (iostat) { *iostat = 1; return; }
+            fprintf(stderr, "Error: Invalid real(10) from file.\n");
+            exit(1);
+        }
+        p[(int64_t)i * (int64_t)stride] = val;
+    }
+}
+
 LFORTRAN_API void _lfortran_read_array_double(double *p, int array_size, int32_t stride, int32_t unit_num, int32_t *iostat)
 {
     int dmode = _lfortran_get_decimal_mode(unit_num);

@@ -22623,6 +22623,9 @@ public:
                     } else if (a_kind == 8) {
                         runtime_func_name = "_lfortran_read_array_double";
                         type_arg = llvm::Type::getDoubleTy(context);
+                    } else if (a_kind == 10) {
+                        runtime_func_name = "_lfortran_read_array_float80";
+                        type_arg = llvm_utils->getFPType(10);
                     } else if (a_kind == 16) {
                         runtime_func_name = "_lfortran_read_array_float128";
                         type_arg = llvm_utils->getFPType(16);
