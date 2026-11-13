@@ -1105,6 +1105,29 @@ void inspect_definitions(const std::string &source, bool fast,
     }
 }
 
+TEST_CASE("LLVM inlines a negative one raised to a variable power") {
+    // The runtime helper already returns the right value for (-1)**n.
+    // This checks the call is not emitted: the low bit of n selects it.
+    std::string source = R"(subroutine neg_one_pow(n, r)
+integer, intent(in) :: n
+integer, intent(out) :: r
+r = (-1)**n
+end subroutine
+)";
+    inspect_definitions(source, false, {{"neg_one_pow", "neg_one_pow"}},
+        [&](const std::string &, llvm::Function &fn) {
+            for (llvm::BasicBlock &block: fn) {
+                for (llvm::Instruction &instruction: block) {
+                    auto *call = llvm::dyn_cast<llvm::CallInst>(&instruction);
+                    if (!call) continue;
+                    llvm::Function *callee = call->getCalledFunction();
+                    if (!callee) continue;
+                    CHECK(callee->getName() != "_lfortran_integer_pow_64");
+                }
+            }
+        });
+}
+
 TEST_CASE("LLVM statement-local stack storage for numeric function results") {
     std::string source = R"(module stack_results
 implicit none

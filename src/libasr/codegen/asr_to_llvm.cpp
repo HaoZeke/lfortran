@@ -19434,6 +19434,29 @@ public:
                     llvm::Value* x2 = builder->CreateMul(left_val, left_val, "simplified_pow_operation");
                     llvm::Value* x4 = builder->CreateMul(x2, x2, "simplified_pow_operation");
                     tmp = builder->CreateMul(x4, x4, "simplified_pow_operation");
+                } else if (llvm::isa<llvm::ConstantInt>(left_val)
+                        && (llvm::cast<llvm::ConstantInt>(left_val)->isMinusOne()
+                            || llvm::cast<llvm::ConstantInt>(left_val)->isZero()
+                            || llvm::cast<llvm::ConstantInt>(left_val)->isOne())) {
+                    // (-1)**n is the low bit of n, including a negative n.
+                    // The runtime helper already returns that value. Inlining
+                    // it keeps the call out of a recurrence. 1**n is 1, and
+                    // 0**n is 1 only when n is 0.
+                    llvm::ConstantInt *base = llvm::cast<llvm::ConstantInt>(left_val);
+                    llvm::Type *ty = left_val->getType();
+                    auto iconst = [&](int64_t v) {
+                        return llvm::ConstantInt::get(ty, v, true);
+                    };
+                    if (base->isOne()) {
+                        tmp = iconst(1);
+                    } else if (base->isZero()) {
+                        llvm::Value *zero_exp = builder->CreateICmpEQ(right_val, iconst(0));
+                        tmp = builder->CreateSelect(zero_exp, iconst(1), iconst(0));
+                    } else {
+                        llvm::Value *odd = builder->CreateICmpNE(
+                            builder->CreateAnd(right_val, iconst(1)), iconst(0));
+                        tmp = builder->CreateSelect(odd, iconst(-1), iconst(1));
+                    }
                 } else { // Use `pow` function for large or negative exponents
                     llvm::Type* const i64_ty = llvm::Type::getInt64Ty(context);
                     llvm::Value* _right = llvm_utils->convert_kind(right_val, i64_ty);
