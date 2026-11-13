@@ -28542,6 +28542,12 @@ public:
         if (!skip_self) {
             ASR::symbol_t *callee = symbol_get_past_external(x.m_name);
             ASR::Function_t *abi_fn = nullptr;
+            if (callee != nullptr
+                    && ASR::is_a<ASR::StructMethodDeclaration_t>(*callee)) {
+                callee = ASRUtils::symbol_get_past_external(
+                    ASR::down_cast<ASR::StructMethodDeclaration_t>(
+                        callee)->m_proc);
+            }
             if (callee != nullptr && ASR::is_a<ASR::Function_t>(*callee)) {
                 abi_fn = ASR::down_cast<ASR::Function_t>(callee);
             } else if (callee != nullptr && ASR::is_a<ASR::Variable_t>(*callee)
@@ -30516,6 +30522,20 @@ public:
         }
         std::vector<llvm::Value *> args2 = convert_call_args(x, !class_proc->m_is_nopass /* skip_self */);
         args.insert(args.end(), args2.begin(), args2.end());
+        // Self was placed first and the remaining arguments were not
+        // reordered. A character result is emitted ahead of every argument,
+        // including the passed-object dummy, so the finished list has to
+        // use that order.
+        {
+            std::vector<size_t> order =
+                ASRUtils::gfortran_character_result_arg_order(*func);
+            if (order.size() == args.size()) {
+                std::vector<llvm::Value*> permuted;
+                permuted.reserve(order.size());
+                for (size_t index : order) permuted.push_back(args[index]);
+                args.swap(permuted);
+            }
+        }
 
         // Get VTable pointer
         if (ASR::is_a<ASR::ArrayItem_t>(*x.m_dt)) {
@@ -30592,6 +30612,20 @@ public:
         }
         std::vector<llvm::Value *> args2 = convert_call_args(x, !class_proc->m_is_nopass /* skip_self */);
         args.insert(args.end(), args2.begin(), args2.end());
+        // Self was placed first and the remaining arguments were not
+        // reordered. A character result is emitted ahead of every argument,
+        // including the passed-object dummy, so the finished list has to
+        // use that order.
+        {
+            std::vector<size_t> order =
+                ASRUtils::gfortran_character_result_arg_order(*func);
+            if (order.size() == args.size()) {
+                std::vector<llvm::Value*> permuted;
+                permuted.reserve(order.size());
+                for (size_t index : order) permuted.push_back(args[index]);
+                args.swap(permuted);
+            }
+        }
 
         // Get Runtime VTable Pointer
         if (ASR::is_a<ASR::ArrayItem_t>(*x.m_dt)) {
