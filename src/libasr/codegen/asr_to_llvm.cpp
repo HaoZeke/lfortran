@@ -21129,10 +21129,12 @@ public:
                     x.m_source, source_arr_type, module.get());
                 llvm::Type* llvm_source_elem_type = llvm_utils->get_type_from_ttype_t_util(
                     x.m_source, ASRUtils::extract_type(source_arr_type), module.get());
-                // A character-string array, and an array section built from
-                // one, is held as a pointer to the descriptor pointer. The
-                // descriptor itself is one load in. Indexing the pointer
-                // slot as if it were the descriptor mixes the two levels.
+                // A slot that still holds the descriptor pointer has to be
+                // loaded before the descriptor is indexed. A pointer
+                // variable is already loaded by visit. LLVM 16 pointers
+                // are opaque, so this is the alloca shape, not the
+                // pointer element type (that call aborts).
+#if LLVM_VERSION_MAJOR < 15
                 if (source->getType()->isPointerTy()) {
                     llvm::Type* pointee = source->getType()->getPointerElementType();
                     if (pointee->isPointerTy() &&
@@ -21140,6 +21142,14 @@ public:
                         source = llvm_utils->CreateLoad2(pointee, source);
                     }
                 }
+#else
+                if (llvm::AllocaInst* slot = llvm::dyn_cast<llvm::AllocaInst>(source)) {
+                    if (slot->getAllocatedType()->isPointerTy()) {
+                        source = llvm_utils->CreateLoad2(
+                            slot->getAllocatedType(), source);
+                    }
+                }
+#endif
                 llvm::Value* data_ptr_ptr = arr_descr->get_pointer_to_data(
                     x.m_source, ASRUtils::expr_type(x.m_source), source, module.get());
                 source_ptr = llvm_utils->CreateLoad2(
@@ -27343,9 +27353,17 @@ public:
                         !ASRUtils::is_array(actual_var->m_type) &&
                         llvm_symtab.find(actual_h) != llvm_symtab.end()) {
                     llvm::Value* slot = llvm_symtab[actual_h];
+#if LLVM_VERSION_MAJOR < 15
                     if (slot->getType()->isPointerTy() &&
                             slot->getType()->getPointerElementType()->isPointerTy()) {
                         llvm::Type* inner_ty = slot->getType()->getPointerElementType();
+#else
+                    // LLVM 16 pointers are opaque, so the slot's element
+                    // type cannot be asked. The data pointer is a pointer.
+                    if (slot->getType()->isPointerTy()) {
+                        llvm::Type* inner_ty = llvm::PointerType::getUnqual(
+                            llvm::Type::getInt8Ty(context));
+#endif
                         llvm::BasicBlock* cur = builder->GetInsertBlock();
                         llvm::Function* fn = cur->getParent();
                         llvm::BasicBlock* live_bb = llvm::BasicBlock::Create(
