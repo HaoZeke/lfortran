@@ -19547,7 +19547,25 @@ public:
     void legacy_array_sections_helper(ASR::symbol_t *v, Vec<ASR::call_arg_t>& args, const Location &loc) {
         bool callee_is_external_symbol = ASR::is_a<ASR::ExternalSymbol_t>(*v);
         ASR::Function_t* f = ASR::down_cast<ASR::Function_t>(ASRUtils::symbol_get_past_external(v));
-        if (compiler_options.legacy_array_sections) {
+        // An array element passed to an explicit-shape or assumed-size dummy
+        // is sequence associated with the elements that follow it (F2023
+        // 15.5.2.4). That is standard, so it does not need
+        // --legacy-array-sections. The flag still covers the other rewrites.
+        bool needs_sequence_association = false;
+        if (!compiler_options.legacy_array_sections) {
+            for (size_t i = 0; i < f->n_args && i < args.size(); i++) {
+                if (ASRUtils::is_array(ASRUtils::expr_type(f->m_args[i])) &&
+                        !ASRUtils::is_assumed_rank_array(ASRUtils::expr_type(f->m_args[i])) &&
+                        args[i].m_value &&
+                        ASR::is_a<ASR::ArrayItem_t>(*args[i].m_value) &&
+                        !ASRUtils::is_array(ASRUtils::expr_type(args[i].m_value)) &&
+                        is_sequence_associable_element(args[i].m_value, f->m_args[i])) {
+                    needs_sequence_association = true;
+                    break;
+                }
+            }
+        }
+        if (compiler_options.legacy_array_sections || needs_sequence_association) {
             // call b(w(icon)) -> call b(w(icon:)) if b is expecting an array
             std::map<size_t, ASR::ttype_t*> array_arg_idx;
             for (size_t i = 0; i < f->n_args; i++) {
@@ -19634,7 +19652,8 @@ public:
                         arg.m_value = ASRUtils::EXPR(ASR::make_GetPointer_t(
                             al, array_item->base.base.loc, arg_expr, cast_target_type, nullptr));
                         args_with_array_section.push_back(al, arg);
-                    } else if (arg_expr && ASR::is_a<ASR::ArraySection_t>(*arg_expr)) {
+                    } else if (arg_expr && ASR::is_a<ASR::ArraySection_t>(*arg_expr)
+                            && compiler_options.legacy_array_sections) {
                         ASR::call_arg_t arg = args[i];
                         ASR::ttype_t* original_dummy_type = ASRUtils::type_get_past_allocatable(
                             ASRUtils::type_get_past_pointer(array_arg_idx[i]));
