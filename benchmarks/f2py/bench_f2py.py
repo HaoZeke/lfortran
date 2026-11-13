@@ -172,6 +172,23 @@ def fortran_sources(scipy: Path, kind: str) -> list[Path]:
         # Those pass a real or complex workspace to an integer or real dummy.
         base = scipy / "scipy/linalg/src/id_dist/src"
         return sorted(base.glob("*.f"))
+    if kind == "slsqp":
+        return [scipy / "scipy/optimize/slsqp/slsqp_optmz.f"]
+    if kind == "cobyla":
+        return [
+            scipy / "scipy/optimize/cobyla/cobyla2.f",
+            scipy / "scipy/optimize/cobyla/trstlp.f",
+        ]
+    if kind == "specfun":
+        # Fortran specfun from SciPy 1.8.0. The 1.14.1 tree ships C.
+        return [SRC / "specfun/specfun.f"]
+    if kind == "cdflib":
+        # Fortran cdflib from SciPy 1.5.4. The 1.14.1 tree ships C.
+        return sorted((SRC / "cdflib").glob("*.f"))
+    if kind == "mvn":
+        # ENTRY MVNDNT is a separate subroutine sharing the saved factor
+        # through COMMON. That is the same storage the entry used.
+        return [SRC / "mvndst.f"]
     if kind == "propack":
         names = [
             "dblasext.F", "dlansvd.F", "dlanbpro.F", "dreorth.F",
@@ -647,6 +664,82 @@ def make_cases(module):
                 f"propack info={info} nfev={nfev} sigma_err={serr}")
         return f"info={info} nfev={nfev} sigma_err={serr:.3e}"
 
+    nrep_sl = 40
+
+    def slsqp():
+        mode, nfev, xmax = module.bench_slsqp(nrep_sl)
+        return int(mode), int(nfev), float(xmax)
+
+    def check_slsqp():
+        mode, nfev, xmax = slsqp()
+        # Rosenbrock from (-1.2, 1). mode 0 is the accuracy stop. A run
+        # that returns the start point, or that never asks for f or g,
+        # is not the SQP.
+        if mode != 0 or xmax > 1e-6 or nfev < nrep_sl * 10:
+            raise AssertionError(f"slsqp mode={mode} nfev={nfev} xmax={xmax}")
+        return f"mode={mode} nfev={nfev} xmax={xmax:.3e}"
+
+    nrep_co = 30
+
+    def cobyla():
+        info, nfev, xmax = module.bench_cobyla(nrep_co)
+        return int(info), int(nfev), float(xmax)
+
+    def check_cobyla():
+        info, nfev, xmax = cobyla()
+        # Projection of (1.5, 0.5) onto the unit disk. info 1 is the
+        # normal return (dinfo(1) left at the start value). A handful
+        # of CALCFC calls cannot reach rhoend.
+        if info not in (0, 1) or xmax > 1e-4 or nfev < nrep_co * 15:
+            raise AssertionError(f"cobyla info={info} nfev={nfev} xmax={xmax}")
+        return f"info={info} nfev={nfev} xmax={xmax:.3e}"
+
+    nrep_sf = 8
+
+    def specfun():
+        ncall, j0_err, gam_err, zero_err = module.bench_specfun(nrep_sf)
+        return int(ncall), float(j0_err), float(gam_err), float(zero_err)
+
+    def check_specfun():
+        ncall, j0_err, gam_err, zero_err = specfun()
+        # 16 Bessel orders, two gamma values, and one zero search, per rep.
+        if ncall != nrep_sf * 19 or j0_err > 1e-8 or gam_err > 1e-8 \
+                or zero_err > 1e-6:
+            raise AssertionError(
+                f"specfun n={ncall} j0={j0_err} gam={gam_err} zero={zero_err}")
+        return (f"n={ncall} j0_err={j0_err:.3e} gam_err={gam_err:.3e} "
+                f"zero_err={zero_err:.3e}")
+
+    nrep_cdf = 15
+
+    def cdflib():
+        ncall, nor_err, gam_err, nbad = module.bench_cdflib(nrep_cdf)
+        return int(ncall), float(nor_err), float(gam_err), int(nbad)
+
+    def check_cdflib():
+        ncall, nor_err, gam_err, nbad = cdflib()
+        # 40 normal inverses, 40 gamma inverses, plus the two medians.
+        if ncall != nrep_cdf * 80 + 2 or nbad != 0 or nor_err > 2e-4 \
+                or gam_err > 1e-6:
+            raise AssertionError(
+                f"cdflib n={ncall} nbad={nbad} nor={nor_err} gam={gam_err}")
+        return f"n={ncall} nbad={nbad} nor_err={nor_err:.3e} gam_err={gam_err:.3e}"
+
+    nrep_mv = 40
+
+    def mvndst():
+        nfev, inform, err = module.bench_mvndst(nrep_mv)
+        return int(nfev), int(inform), float(err)
+
+    def check_mvndst():
+        nfev, inform, err = mvndst()
+        # Five independent standard normals on (-inf, 0]. The product of
+        # the margins is 1/32. inform 1 means the point budget was spent.
+        if inform != 0 or nfev != nrep_mv or err > 1e-4:
+            raise AssertionError(
+                f"mvndst inform={inform} nfev={nfev} err={err}")
+        return f"inform={inform} nfev={nfev} err={err:.3e}"
+
     return {
         "triple_loop": (triple, check_triple),
         "reduction": (reduce, check_reduce),
@@ -663,6 +756,11 @@ def make_cases(module):
         "id_dist_id": (idist, check_id),
         "id_dist_extra": (idextra, check_idextra),
         "propack_lansvd": (propack, check_propack),
+        "slsqp_optmz": (slsqp, check_slsqp),
+        "cobyla_minimize": (cobyla, check_cobyla),
+        "specfun_sweep": (specfun, check_specfun),
+        "cdflib_inv": (cdflib, check_cdflib),
+        "mvn_mvndst": (mvndst, check_mvndst),
     }
 
 
@@ -764,6 +862,46 @@ SPECS = [
         "blas": True,
         "include": ["scipy/sparse/linalg/_propack/PROPACK/double"],
         "calls": ["propack_lansvd"],
+    },
+    {
+        "name": "slsqp",
+        "driver": SRC / "slsqp_bench.f90",
+        "only": ["bench_slsqp"],
+        "scipy": "slsqp",
+        "blas": False,
+        "calls": ["slsqp_optmz"],
+    },
+    {
+        "name": "cobyla",
+        "driver": SRC / "cobyla_bench.f90",
+        "only": ["bench_cobyla"],
+        "scipy": "cobyla",
+        "blas": False,
+        "calls": ["cobyla_minimize"],
+    },
+    {
+        "name": "specfun",
+        "driver": SRC / "specfun_bench.f90",
+        "only": ["bench_specfun"],
+        "scipy": "specfun",
+        "blas": False,
+        "calls": ["specfun_sweep"],
+    },
+    {
+        "name": "cdflib",
+        "driver": SRC / "cdflib_bench.f90",
+        "only": ["bench_cdflib"],
+        "scipy": "cdflib",
+        "blas": False,
+        "calls": ["cdflib_inv"],
+    },
+    {
+        "name": "mvn",
+        "driver": SRC / "mvn_bench.f90",
+        "only": ["bench_mvndst"],
+        "scipy": "mvn",
+        "blas": False,
+        "calls": ["mvn_mvndst"],
     },
 ]
 

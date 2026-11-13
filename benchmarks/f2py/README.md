@@ -41,4 +41,8 @@ The columns cover every workload: the triple loop and reduction,
 fitpack `curfit`/`splev`, MINPACK `lmdif` and `hybrd1`, quadpack
 `dqags`, L-BFGS-B `setulb`, ARPACK `dsaupd`, ODEPACK `lsoda`, FFTPACK
 `rfftf`/`rfftb`, ODRPACK `dodr`, the rank-8 `id_dist` interpolative
-decomposition, and PROPACK `dlansvd`.
+decomposition, and PROPACK `dlansvd`. SLSQP `slsqp` and COBYLA
+are the Fortran solvers still in SciPy 1.14.1. specfun is the Fortran
+package from SciPy 1.8.0 and cdflib the Fortran package from SciPy
+1.5.4, both C in the 1.14.1 tree. `mvndst` is the LAPACK-free
+multivariate normal integral in `scipy/stats`.
