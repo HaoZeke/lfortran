@@ -5621,6 +5621,7 @@ RUN(NAME duplicate_contained_function_01 LABELS llvm
     EXTRA_ARGS --implicit-interface)
 RUN(NAME empty_explicit_shape_01 LABELS gfortran llvm
     EXTRA_ARGS --implicit-interface)
+RUN(NAME implicit_do_01 LABELS gfortran llvm)
 RUN(NAME dimensions_decl_order_01 LABELS gfortran llvm
     EXTRA_ARGS --implicit-typing) # a dummy may bound an array before it is declared, also under implicit none
 
