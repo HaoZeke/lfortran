@@ -210,8 +210,21 @@ namespace LCompilers::CommandLineInterface {
         compiler_options.c_preprocessor = false;
         compiler_options.infer_mode = false;
         compiler_options.po.openmp = compiler_options.openmp;
-        // GFortran appends one underscore to an external procedure. The
-        // fast path returns before the rest of parse() applies this.
+        // The fast path returns before the rest of parse() applies these.
+        // A .f file is fixed form with implicit typing, and an external
+        // procedure gets GFortran's underscore.
+        {
+            const std::string &source_file = fast_opts.arg_file;
+            bool legacy_fixed_form = endswith(source_file, ".f") ||
+                endswith(source_file, ".F") || endswith(source_file, ".for") ||
+                endswith(source_file, ".FOR") || endswith(source_file, ".ftn") ||
+                endswith(source_file, ".FTN") || endswith(source_file, ".f77") ||
+                endswith(source_file, ".F77");
+            if (legacy_fixed_form) {
+                compiler_options.fixed_form = true;
+                compiler_options.implicit_typing = true;
+            }
+        }
         compiler_options.po.mangle_underscore_external = true;
         parser.opts = std::move(fast_opts);
         initialize_subcommands(parser);
