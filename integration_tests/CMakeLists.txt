@@ -5614,6 +5614,9 @@ if (LFORTRAN_BACKEND STREQUAL "llvm")
     add_executable(legacy_fixed_form_01 legacy_fixed_form_01.f)
     add_test(NAME legacy_fixed_form_01 COMMAND legacy_fixed_form_01)
 endif()
+RUN(NAME module_parameter_pointer_01 LABELS gfortran llvm
+    EXTRAFILES module_parameter_pointer_01.c
+    EXTRA_ARGS --implicit-interface --mangle-underscore-external)
 RUN(NAME dimensions_decl_order_01 LABELS gfortran llvm
     EXTRA_ARGS --implicit-typing) # a dummy may bound an array before it is declared, also under implicit none
 
