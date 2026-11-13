@@ -6919,9 +6919,23 @@ namespace Pack {
                 Vec<ASR::expr_t*> args_count; args_count.reserve(al, 1); args_count.push_back(al, mask);
                 count = EXPR(Count::create_Count(al, loc, args_count, diag));
             }
+            // A constant mask makes the extent a constant. Leaving it as
+            // `count(mask)` drops that value when the intrinsic is lowered,
+            // and the result is then an allocatable with no bounds.
+            int64_t count_n = 0;
+            if (count && ASRUtils::extract_value(ASRUtils::expr_value(count), count_n)) {
+                count = EXPR(ASR::make_IntegerConstant_t(
+                    al, loc, count_n, expr_type(count)));
+            }
             result_dims.push_back(al, ArrIntrinsic::result_dim(b, count));
             ret_type = ASRUtils::duplicate_type(al, ret_type, &result_dims, ASR::array_physical_typeType::DescriptorArray, true);
-            is_type_allocatable = true;
+            // The extent is `count(mask)`. Wrapping this in an allocatable
+            // with empty bounds drops that extent, and the result descriptor
+            // passed to `pack` is then never allocated.
+            if (is_type_allocatable) {
+                ret_type = ASRUtils::type_get_past_allocatable(ret_type);
+                is_type_allocatable = false;
+            }
         }
         if (is_type_allocatable) {
             ret_type = TYPE(ASRUtils::make_Allocatable_t_util(al, loc,

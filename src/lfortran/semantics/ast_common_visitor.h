@@ -13367,6 +13367,18 @@ public:
                                 value = a->m_value;
                             }
                         }
+                        // Implied-shape `x(*) = pack(...)` is left with empty
+                        // bounds when the initializer is not an array constant,
+                        // even if that initializer already has an extent
+                        // (`count(mask)`). Take the initializer's shape.
+                        if (init_expr && ASRUtils::is_array(type)
+                                && ASRUtils::is_dimension_empty(dims.p, dims.n)
+                                && ASRUtils::is_dimension_empty(type)
+                                && ASRUtils::is_array(ASRUtils::expr_type(init_expr))
+                                && !ASRUtils::is_dimension_empty(
+                                    ASRUtils::expr_type(init_expr))) {
+                            type = implied_shape_type(ASRUtils::expr_type(init_expr));
+                        }
                     } else if (!is_derived_type) {
                         implicit_save = true;
                         storage_type = ASR::storage_typeType::Save; // implicit save
