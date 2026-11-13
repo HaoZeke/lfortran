@@ -1,0 +1,13 @@
+{
+    "basename": "run-class_pointer_dispatch_01-ba9fc7c",
+    "cmd": "lfortran --no-color {infile}",
+    "infile": "tests/../integration_tests/class_pointer_dispatch_01.f90",
+    "infile_hash": "b7d015db1faa5586a651bb1b935d383d11f4966a1c73e62b46d751b7",
+    "outfile": null,
+    "outfile_hash": null,
+    "stdout": "run-class_pointer_dispatch_01-ba9fc7c.stdout",
+    "stdout_hash": "66a02dbf2489a482a6bacad0c34674b7f315936ad5824c0bf794aaad",
+    "stderr": null,
+    "stderr_hash": null,
+    "returncode": 0
+}
