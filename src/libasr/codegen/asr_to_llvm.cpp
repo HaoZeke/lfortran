@@ -21,6 +21,7 @@
 #include <llvm/IR/DerivedTypes.h>
 #include <llvm/IR/Function.h>
 #include <llvm/IR/IRBuilder.h>
+#include <llvm/IR/InlineAsm.h>
 #include <llvm/IR/Instructions.h>
 #include <llvm/IR/Intrinsics.h>
 #include <llvm/IR/LegacyPassManager.h>
@@ -8972,6 +8973,75 @@ public:
     }
 #endif
 
+    // gfortran's fast math links crtfastmath, which sets flush-to-zero and
+    // denormals-are-zero before main. Library code such as OpenBLAS then
+    // skips the gradual-underflow path. The flags on LFortran's own
+    // instructions do not change that processor state.
+    void emit_fast_math_denormal_flush() {
+        if (compiler_options.interactive || !compiler_options.po.fast
+                || compiler_options.po.no_fast_math) {
+            return;
+        }
+        if (module->getFunction("lfortran_set_fast_math") != nullptr) {
+            return;
+        }
+        std::string triple = compiler_options.target.empty()
+            ? llvm::sys::getDefaultTargetTriple()
+            : compiler_options.target;
+        bool x86 = triple.find("x86_64") != std::string::npos
+            || triple.find("i386") != std::string::npos
+            || triple.find("i686") != std::string::npos;
+        bool aarch64 = triple.find("aarch64") != std::string::npos
+            || triple.find("arm64") != std::string::npos;
+        if (!x86 && !aarch64) {
+            return;
+        }
+
+        llvm::IRBuilderBase::InsertPoint saved = builder->saveIP();
+        llvm::FunctionType *fn_type = llvm::FunctionType::get(
+            llvm::Type::getVoidTy(context), {}, false);
+        llvm::Function *fn = llvm::Function::Create(fn_type,
+            llvm::Function::InternalLinkage, "lfortran_set_fast_math",
+            module.get());
+        llvm::BasicBlock *entry = llvm::BasicBlock::Create(context,
+            "entry", fn);
+        builder->SetInsertPoint(entry);
+        if (x86) {
+            llvm::Type *i32 = llvm::Type::getInt32Ty(context);
+            llvm::AllocaInst *slot = builder->CreateAlloca(i32, nullptr,
+                "mxcsr");
+            llvm::FunctionType *asm_type = llvm::FunctionType::get(
+                llvm::Type::getVoidTy(context), {slot->getType()}, false);
+            llvm::InlineAsm *store_csr = llvm::InlineAsm::get(asm_type,
+                "stmxcsr $0", "=*m,~{dirflag},~{fpsr},~{flags}", true);
+            builder->CreateCall(store_csr, {slot});
+            llvm::Value *bits = llvm_utils->CreateLoad2(i32, slot);
+            llvm::Value *flushed = builder->CreateOr(bits,
+                llvm::ConstantInt::get(i32, 0x8040));
+            builder->CreateStore(flushed, slot);
+            llvm::InlineAsm *load_csr = llvm::InlineAsm::get(asm_type,
+                "ldmxcsr $0", "*m,~{dirflag},~{fpsr},~{flags}", true);
+            builder->CreateCall(load_csr, {slot});
+        } else {
+            llvm::Type *i64 = llvm::Type::getInt64Ty(context);
+            llvm::FunctionType *read_type = llvm::FunctionType::get(
+                i64, {}, false);
+            llvm::InlineAsm *read_fpcr = llvm::InlineAsm::get(read_type,
+                "mrs $0, fpcr", "=r,~{dirflag},~{fpsr},~{flags}", true);
+            llvm::Value *bits = builder->CreateCall(read_fpcr, {});
+            llvm::Value *flushed = builder->CreateOr(bits,
+                llvm::ConstantInt::get(i64, 0x1000000));
+            llvm::FunctionType *write_type = llvm::FunctionType::get(
+                llvm::Type::getVoidTy(context), {i64}, false);
+            llvm::InlineAsm *write_fpcr = llvm::InlineAsm::get(write_type,
+                "msr fpcr, $0", "r,~{dirflag},~{fpsr},~{flags}", true);
+            builder->CreateCall(write_fpcr, {flushed});
+        }
+        builder->CreateRetVoid();
+        llvm::appendToGlobalCtors(*module, fn, 65535);
+        builder->restoreIP(saved);
+    }
+
     void visit_Program(const ASR::Program_t &x) {
         llvm::DIScope* debug_current_scope_copy = debug_current_scope;
         llvm::DISubprogram *SP = nullptr;
@@ -9193,6 +9263,7 @@ public:
                 llvm::APInt(32, 0));
             builder->CreateRet(ret_val2);
         }
+        emit_fast_math_denormal_flush();
         dict_api_lp->set_is_dict_present(is_dict_present_copy_lp);
         dict_api_sc->set_is_dict_present(is_dict_present_copy_sc);
         set_api_lp->set_is_set_present(is_set_present_copy_lp);
