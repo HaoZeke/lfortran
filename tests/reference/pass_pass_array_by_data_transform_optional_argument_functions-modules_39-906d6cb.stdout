@@ -56,84 +56,7 @@
                                     (SymbolTable
                                         7
                                         {
-                                            __libasr_created_variable_:
-                                                (Variable
-                                                    7
-                                                    __libasr_created_variable_
-                                                    []
-                                                    Local
-                                                    ()
-                                                    ()
-                                                    Default
-                                                    (String 1 (IntegerConstant 0 (Integer 4) Decimal) ExpressionLength DescriptorString)
-                                                    ()
-                                                    Source
-                                                    Public
-                                                    Required
-                                                    .false.
-                                                    .false.
-                                                    .false.
-                                                    ()
-                                                    .false.
-                                                    .false.
-                                                    .false.
-                                                    NotMethod
-                                                    ()
-                                                    []
-                                                    ()
-                                                ),
-                                            __libasr_created_variable_1:
-                                                (Variable
-                                                    7
-                                                    __libasr_created_variable_1
-                                                    []
-                                                    Local
-                                                    ()
-                                                    ()
-                                                    Default
-                                                    (String 1 (IntegerConstant 0 (Integer 4) Decimal) ExpressionLength DescriptorString)
-                                                    ()
-                                                    Source
-                                                    Public
-                                                    Required
-                                                    .false.
-                                                    .false.
-                                                    .false.
-                                                    ()
-                                                    .false.
-                                                    .false.
-                                                    .false.
-                                                    NotMethod
-                                                    ()
-                                                    []
-                                                    ()
-                                                ),
-                                            __libasr_created_variable_2:
-                                                (Variable
-                                                    7
-                                                    __libasr_created_variable_2
-                                                    []
-                                                    Local
-                                                    ()
-                                                    ()
-                                                    Default
-                                                    (String 1 (IntegerConstant 0 (Integer 4) Decimal) ExpressionLength DescriptorString)
-                                                    ()
-                                                    Source
-                                                    Public
-                                                    Required
-                                                    .false.
-                                                    .false.
-                                                    .false.
-                                                    ()
-                                                    .false.
-                                                    .false.
-                                                    .false.
-                                                    NotMethod
-                                                    ()
-                                                    []
-                                                    ()
-                                                )
+                                            
                                         })
                                     build_model
                                     (FunctionType
@@ -167,21 +90,9 @@
                                                 ".gitignore"
                                                 (String 1 (IntegerConstant 10 (Integer 4) Decimal) ExpressionLength DescriptorString)
                                             ))
-                                            ((Var 7 __libasr_created_variable_))
-                                            ((LogicalConstant
-                                                .false.
-                                                (Logical 4)
-                                            ))
-                                            ((Var 7 __libasr_created_variable_1))
-                                            ((LogicalConstant
-                                                .false.
-                                                (Logical 4)
-                                            ))
-                                            ((Var 7 __libasr_created_variable_2))
-                                            ((LogicalConstant
-                                                .false.
-                                                (Logical 4)
-                                            ))]
+                                            (())
+                                            (())
+                                            (())]
                                             (Allocatable
                                                 (String 1 () DeferredLength DescriptorString)
                                             )
@@ -379,84 +290,6 @@
                                     (SymbolTable
                                         6
                                         {
-                                            __libasr_is_present_a3:
-                                                (Variable
-                                                    6
-                                                    __libasr_is_present_a3
-                                                    []
-                                                    In
-                                                    ()
-                                                    ()
-                                                    Default
-                                                    (Logical 4)
-                                                    ()
-                                                    Source
-                                                    Public
-                                                    Required
-                                                    .false.
-                                                    .false.
-                                                    .false.
-                                                    ()
-                                                    .false.
-                                                    .false.
-                                                    .false.
-                                                    NotMethod
-                                                    ()
-                                                    []
-                                                    ()
-                                                ),
-                                            __libasr_is_present_a4:
-                                                (Variable
-                                                    6
-                                                    __libasr_is_present_a4
-                                                    []
-                                                    In
-                                                    ()
-                                                    ()
-                                                    Default
-                                                    (Logical 4)
-                                                    ()
-                                                    Source
-                                                    Public
-                                                    Required
-                                                    .false.
-                                                    .false.
-                                                    .false.
-                                                    ()
-                                                    .false.
-                                                    .false.
-                                                    .false.
-                                                    NotMethod
-                                                    ()
-                                                    []
-                                                    ()
-                                                ),
-                                            __libasr_is_present_a5:
-                                                (Variable
-                                                    6
-                                                    __libasr_is_present_a5
-                                                    []
-                                                    In
-                                                    ()
-                                                    ()
-                                                    Default
-                                                    (Logical 4)
-                                                    ()
-                                                    Source
-                                                    Public
-                                                    Required
-                                                    .false.
-                                                    .false.
-                                                    .false.
-                                                    ()
-                                                    .false.
-                                                    .false.
-                                                    .false.
-                                                    NotMethod
-                                                    ()
-                                                    []
-                                                    ()
-                                                ),
                                             a1:
                                                 (Variable
                                                     6
@@ -522,7 +355,7 @@
                                                     ()
                                                     Source
                                                     Public
-                                                    Required
+                                                    Optional
                                                     .false.
                                                     .false.
                                                     .false.
@@ -548,7 +381,7 @@
                                                     ()
                                                     Source
                                                     Public
-                                                    Required
+                                                    Optional
                                                     .false.
                                                     .false.
                                                     .false.
@@ -574,7 +407,7 @@
                                                     ()
                                                     Source
                                                     Public
-                                                    Required
+                                                    Optional
                                                     .false.
                                                     .false.
                                                     .false.
@@ -621,11 +454,8 @@
                                         [(String 1 () AssumedLength DescriptorString)
                                         (String 1 () AssumedLength DescriptorString)
                                         (String 1 () AssumedLength DescriptorString)
-                                        (Logical 4)
                                         (String 1 () AssumedLength DescriptorString)
-                                        (Logical 4)
-                                        (String 1 () AssumedLength DescriptorString)
-                                        (Logical 4)]
+                                        (String 1 () AssumedLength DescriptorString)]
                                         (Allocatable
                                             (String 1 () DeferredLength DescriptorString)
                                         )
@@ -645,11 +475,8 @@
                                     [(Var 6 a1)
                                     (Var 6 a2)
                                     (Var 6 a3)
-                                    (Var 6 __libasr_is_present_a3)
                                     (Var 6 a4)
-                                    (Var 6 __libasr_is_present_a4)
-                                    (Var 6 a5)
-                                    (Var 6 __libasr_is_present_a5)]
+                                    (Var 6 a5)]
                                     []
                                     (Var 6 path)
                                     Public

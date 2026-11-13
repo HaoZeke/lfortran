@@ -9,14 +9,14 @@ target datalayout = "..."
 @string_const = private global %string_descriptor { i8* getelementptr inbounds ([11 x i8], [11 x i8]* @string_const_data, i32 0, i32 0), i64 11 }
 @1 = private unnamed_addr constant [5 x i8] c"%s%s\00", align 1
 
-define void @f() {
+define void @f_() {
 .entry:
   br label %return
 
 return:                                           ; preds = %.entry
-  br label %FINALIZE_SYMTABLE_f
+  br label %FINALIZE_SYMTABLE_f_
 
-FINALIZE_SYMTABLE_f:                              ; preds = %return
+FINALIZE_SYMTABLE_f_:                             ; preds = %return
   ret void
 }
 

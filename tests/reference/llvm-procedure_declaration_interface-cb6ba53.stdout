@@ -52,7 +52,7 @@ FINALIZE_SYMTABLE__lcompilers_abs_f32:            ; preds = %return
   ret float %5
 }
 
-declare float @fun_interface()
+declare float @fun_interface_()
 
 define float @__module_my_module_my_wrapper(float ()* %fun) {
 .entry:

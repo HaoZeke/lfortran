@@ -2,21 +2,21 @@
 source_filename = "LFortran"
 target datalayout = "..."
 
-define void @find_fit(void ([1 x float]*)* %expr) {
+define void @find_fit_(void ([1 x float]*)* %expr_) {
 .entry:
   br label %return
 
 return:                                           ; preds = %.entry
-  br label %FINALIZE_SYMTABLE_find_fit
+  br label %FINALIZE_SYMTABLE_find_fit_
 
-FINALIZE_SYMTABLE_find_fit:                       ; preds = %return
+FINALIZE_SYMTABLE_find_fit_:                      ; preds = %return
   ret void
 }
 
 define i32 @main(i32 %0, i8** %1) {
 .entry:
   call void @_lpython_call_initial_functions(i32 %0, i8** %1)
-  call void @find_fit(void ([1 x float]*)* @main.expression)
+  call void @find_fit_(void ([1 x float]*)* @main.expression)
   br label %return
 
 return:                                           ; preds = %.entry

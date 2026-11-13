@@ -7,168 +7,6 @@
                     (SymbolTable
                         5
                         {
-                            __libasr_created_dummy_variable_:
-                                (Variable
-                                    5
-                                    __libasr_created_dummy_variable_
-                                    []
-                                    Local
-                                    ()
-                                    ()
-                                    Default
-                                    (Integer 4)
-                                    ()
-                                    Source
-                                    Public
-                                    Required
-                                    .false.
-                                    .false.
-                                    .false.
-                                    ()
-                                    .false.
-                                    .false.
-                                    .false.
-                                    NotMethod
-                                    ()
-                                    []
-                                    ()
-                                ),
-                            __libasr_created_dummy_variable_1:
-                                (Variable
-                                    5
-                                    __libasr_created_dummy_variable_1
-                                    []
-                                    Local
-                                    ()
-                                    ()
-                                    Default
-                                    (Integer 4)
-                                    ()
-                                    Source
-                                    Public
-                                    Required
-                                    .false.
-                                    .false.
-                                    .false.
-                                    ()
-                                    .false.
-                                    .false.
-                                    .false.
-                                    NotMethod
-                                    ()
-                                    []
-                                    ()
-                                ),
-                            __libasr_created_dummy_variable_2:
-                                (Variable
-                                    5
-                                    __libasr_created_dummy_variable_2
-                                    []
-                                    Local
-                                    ()
-                                    ()
-                                    Default
-                                    (Integer 4)
-                                    ()
-                                    Source
-                                    Public
-                                    Required
-                                    .false.
-                                    .false.
-                                    .false.
-                                    ()
-                                    .false.
-                                    .false.
-                                    .false.
-                                    NotMethod
-                                    ()
-                                    []
-                                    ()
-                                ),
-                            __libasr_created_variable_pointer_:
-                                (Variable
-                                    5
-                                    __libasr_created_variable_pointer_
-                                    []
-                                    Local
-                                    ()
-                                    ()
-                                    Default
-                                    (Pointer
-                                        (Integer 4)
-                                    )
-                                    ()
-                                    Source
-                                    Public
-                                    Required
-                                    .false.
-                                    .false.
-                                    .false.
-                                    ()
-                                    .false.
-                                    .false.
-                                    .false.
-                                    NotMethod
-                                    ()
-                                    []
-                                    ()
-                                ),
-                            __libasr_created_variable_pointer_1:
-                                (Variable
-                                    5
-                                    __libasr_created_variable_pointer_1
-                                    []
-                                    Local
-                                    ()
-                                    ()
-                                    Default
-                                    (Pointer
-                                        (Integer 4)
-                                    )
-                                    ()
-                                    Source
-                                    Public
-                                    Required
-                                    .false.
-                                    .false.
-                                    .false.
-                                    ()
-                                    .false.
-                                    .false.
-                                    .false.
-                                    NotMethod
-                                    ()
-                                    []
-                                    ()
-                                ),
-                            __libasr_created_variable_pointer_2:
-                                (Variable
-                                    5
-                                    __libasr_created_variable_pointer_2
-                                    []
-                                    Local
-                                    ()
-                                    ()
-                                    Default
-                                    (Pointer
-                                        (Integer 4)
-                                    )
-                                    ()
-                                    Source
-                                    Public
-                                    Required
-                                    .false.
-                                    .false.
-                                    .false.
-                                    ()
-                                    .false.
-                                    .false.
-                                    .false.
-                                    NotMethod
-                                    ()
-                                    []
-                                    ()
-                                ),
                             f1:
                                 (ExternalSymbol
                                     5
@@ -285,48 +123,12 @@
                         .false.
                         .false.
                     )
-                    (If
-                        ()
-                        (IntrinsicImpureFunction
-                            Allocated
-                            [(Var 5 i)]
-                            0
-                            (Logical 4)
-                            ()
-                        )
-                        [(Associate
-                            (Var 5 __libasr_created_variable_pointer_)
-                            (Var 5 i)
-                            NoPointerBounds
-                        )]
-                        [(Associate
-                            (Var 5 __libasr_created_variable_pointer_)
-                            (Var 5 __libasr_created_dummy_variable_)
-                            NoPointerBounds
-                        )]
-                    )
                     (Assignment
                         (Var 5 lfortran_tmp)
                         (FunctionCall
                             5 f1
                             ()
-                            [((Var 5 __libasr_created_variable_pointer_))
-                            ((LogicalBinOp
-                                (IntrinsicImpureFunction
-                                    Allocated
-                                    [(Var 5 i)]
-                                    0
-                                    (Logical 4)
-                                    ()
-                                )
-                                And
-                                (LogicalConstant
-                                    .true.
-                                    (Logical 4)
-                                )
-                                (Logical 4)
-                                ()
-                            ))]
+                            [((Var 5 i))]
                             (Allocatable
                                 (Integer 4)
                             )
@@ -338,49 +140,13 @@
                         .false.
                         .false.
                         .false.
-                    )
-                    (If
-                        ()
-                        (IntrinsicImpureFunction
-                            Allocated
-                            [(Var 5 lfortran_tmp)]
-                            0
-                            (Logical 4)
-                            ()
-                        )
-                        [(Associate
-                            (Var 5 __libasr_created_variable_pointer_1)
-                            (Var 5 lfortran_tmp)
-                            NoPointerBounds
-                        )]
-                        [(Associate
-                            (Var 5 __libasr_created_variable_pointer_1)
-                            (Var 5 __libasr_created_dummy_variable_1)
-                            NoPointerBounds
-                        )]
                     )
                     (Assignment
                         (Var 5 lfortran_tmp1)
                         (FunctionCall
                             5 f1
                             ()
-                            [((Var 5 __libasr_created_variable_pointer_1))
-                            ((LogicalBinOp
-                                (IntrinsicImpureFunction
-                                    Allocated
-                                    [(Var 5 lfortran_tmp)]
-                                    0
-                                    (Logical 4)
-                                    ()
-                                )
-                                And
-                                (LogicalConstant
-                                    .true.
-                                    (Logical 4)
-                                )
-                                (Logical 4)
-                                ()
-                            ))]
+                            [((Var 5 lfortran_tmp))]
                             (Allocatable
                                 (Integer 4)
                             )
@@ -392,26 +158,6 @@
                         .false.
                         .false.
                         .false.
-                    )
-                    (If
-                        ()
-                        (IntrinsicImpureFunction
-                            Allocated
-                            [(Var 5 lfortran_tmp1)]
-                            0
-                            (Logical 4)
-                            ()
-                        )
-                        [(Associate
-                            (Var 5 __libasr_created_variable_pointer_2)
-                            (Var 5 lfortran_tmp1)
-                            NoPointerBounds
-                        )]
-                        [(Associate
-                            (Var 5 __libasr_created_variable_pointer_2)
-                            (Var 5 __libasr_created_dummy_variable_2)
-                            NoPointerBounds
-                        )]
                     )
                     (SubroutineCall
                         5 my_sub
@@ -419,23 +165,7 @@
                         [((FunctionCall
                             5 f1
                             ()
-                            [((Var 5 __libasr_created_variable_pointer_2))
-                            ((LogicalBinOp
-                                (IntrinsicImpureFunction
-                                    Allocated
-                                    [(Var 5 lfortran_tmp1)]
-                                    0
-                                    (Logical 4)
-                                    ()
-                                )
-                                And
-                                (LogicalConstant
-                                    .true.
-                                    (Logical 4)
-                                )
-                                (Logical 4)
-                                ()
-                            ))]
+                            [((Var 5 lfortran_tmp1))]
                             (Allocatable
                                 (Integer 4)
                             )
@@ -457,32 +187,6 @@
                                     (SymbolTable
                                         4
                                         {
-                                            __libasr_is_present_x:
-                                                (Variable
-                                                    4
-                                                    __libasr_is_present_x
-                                                    []
-                                                    In
-                                                    ()
-                                                    ()
-                                                    Default
-                                                    (Logical 4)
-                                                    ()
-                                                    Source
-                                                    Public
-                                                    Required
-                                                    .false.
-                                                    .false.
-                                                    .false.
-                                                    ()
-                                                    .false.
-                                                    .false.
-                                                    .false.
-                                                    NotMethod
-                                                    ()
-                                                    []
-                                                    ()
-                                                ),
                                             r:
                                                 (Variable
                                                     4
@@ -524,7 +228,7 @@
                                                     ()
                                                     Source
                                                     Public
-                                                    Required
+                                                    Optional
                                                     .false.
                                                     .false.
                                                     .false.
@@ -540,8 +244,7 @@
                                         })
                                     f1
                                     (FunctionType
-                                        [(Integer 4)
-                                        (Logical 4)]
+                                        [(Integer 4)]
                                         (Allocatable
                                             (Integer 4)
                                         )
@@ -558,8 +261,7 @@
                                         Host
                                     )
                                     []
-                                    [(Var 4 x)
-                                    (Var 4 __libasr_is_present_x)]
+                                    [(Var 4 x)]
                                     [(Assignment
                                         (Var 4 r)
                                         (IntegerConstant 0 (Integer 4) Decimal)

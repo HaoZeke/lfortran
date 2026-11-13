@@ -42,6 +42,32 @@
                                     ()
                                     []
                                     ()
+                                ),
+                            undef:
+                                (Variable
+                                    2
+                                    undef
+                                    []
+                                    Local
+                                    ()
+                                    ()
+                                    Default
+                                    (Real 4)
+                                    ()
+                                    Source
+                                    Public
+                                    Required
+                                    .false.
+                                    .false.
+                                    .false.
+                                    ()
+                                    .false.
+                                    .false.
+                                    .false.
+                                    NotMethod
+                                    ()
+                                    []
+                                    ()
                                 )
                         })
                     continue_compilation_ff_3
@@ -58,6 +84,21 @@
                     (BlockCall
                         -1
                         2 block
+                    )
+                    (Assignment
+                        (Var 2 k)
+                        (Cast
+                            (Var 2 undef)
+                            RealToInteger
+                            (Integer 4)
+                            ()
+                            ()
+                        )
+                        ()
+                        .false.
+                        .false.
+                        .false.
+                        .false.
                     )]
                     ()
                 )

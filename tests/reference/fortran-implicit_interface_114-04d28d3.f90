@@ -1,17 +1,17 @@
 program implicit_interface_114
 implicit none
 type :: t
-    procedure(__p_iface_implicit), pointer :: p
+    procedure(__p_iface_implicit_), pointer :: p
 end type t
 type(t) :: a
 integer(4) :: i
 integer(4) :: y
-external :: __p_iface_implicit
-integer(4), external :: f
-external :: g
+external :: __p_iface_implicit_
+integer(4), external :: f_
+external :: g_
 i = 1
-y = f(1)
-call g(i)
+y = f_(1)
+call g_(i)
 a%p => touch
 call a%p(1)
 call apply(incr, i)
@@ -24,10 +24,10 @@ end if
 
 contains
 
-subroutine apply(f, x)
+subroutine apply(f_, x)
     integer(4), intent(inout) :: x
-    integer(4), external :: f
-    call f(x)
+    integer(4), external :: f_
+    call f_(x)
 end subroutine apply
 
 subroutine incr(x)
@@ -42,16 +42,16 @@ subroutine touch(n)
     end if
 end subroutine touch
 
-integer(4) function f(n)
+integer(4) function f_(n) result(f)
     integer(4), intent(in) :: n
     f = n
-end function f
+end function f_
 
-subroutine g(i)
+subroutine g_(i)
     integer(4), intent(inout) :: i
     if (i /= 1) then
         error stop
     end if
-end subroutine g
+end subroutine g_
 
 end program implicit_interface_114

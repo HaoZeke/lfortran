@@ -103,17 +103,17 @@ FINALIZE_SYMTABLE__lcompilers_len_trim_str:       ; preds = %return
   ret i32 %28
 }
 
-define internal void @_lcompilers_trim_str(i8* %str, i8* %result, i64 %__libasr_len_str, i64 %__libasr_len_result) {
+define internal void @_lcompilers_trim_str(i8* %result, i64 %__libasr_len_result, i8* %str, i64 %__libasr_len_str) {
 .entry:
   %0 = call i8* @_lfortran_get_default_allocator()
   %StrSlice_StrView = alloca %string_descriptor, align 8
   %call_arg_value = alloca i64, align 8
   %result_desc = alloca %string_descriptor, align 8
   %str_desc = alloca %string_descriptor, align 8
-  %__libasr_len_str_value = alloca i64, align 8
-  store i64 %__libasr_len_str, i64* %__libasr_len_str_value, align 8
   %__libasr_len_result_value = alloca i64, align 8
   store i64 %__libasr_len_result, i64* %__libasr_len_result_value, align 8
+  %__libasr_len_str_value = alloca i64, align 8
+  store i64 %__libasr_len_str, i64* %__libasr_len_str_value, align 8
   %1 = getelementptr %string_descriptor, %string_descriptor* %str_desc, i32 0, i32 0
   store i8* %str, i8** %1, align 8
   %2 = getelementptr %string_descriptor, %string_descriptor* %result_desc, i32 0, i32 0
@@ -168,7 +168,7 @@ FINALIZE_SYMTABLE__lcompilers_trim_str:           ; preds = %return
   ret void
 }
 
-define void @__module_testdrive_derived_types_32_real_dp_to_string(double* %val, %string_descriptor* %string) {
+define void @__module_testdrive_derived_types_32_real_dp_to_string(%string_descriptor* %string, double* %val) {
 .entry:
   %call_arg_value4 = alloca i64, align 8
   %call_arg_value = alloca i64, align 8
@@ -282,7 +282,7 @@ ifcont3:                                          ; preds = %else2, %then1
   %53 = load i64, i64* %52, align 8
   store i64 %53, i64* %call_arg_value4, align 8
   %54 = load i64, i64* %call_arg_value4, align 8
-  call void @_lcompilers_trim_str(i8* %48, i8* %50, i64 %51, i64 %54)
+  call void @_lcompilers_trim_str(i8* %50, i64 %54, i8* %48, i64 %51)
   %55 = getelementptr %string_descriptor, %string_descriptor* %string, i32 0, i32 0
   %56 = getelementptr %string_descriptor, %string_descriptor* %string, i32 0, i32 1
   %57 = getelementptr %string_descriptor, %string_descriptor* %__libasr__created__var__2_return_slot, i32 0, i32 0
@@ -354,7 +354,7 @@ define i32 @main(i32 %0, i8** %1) {
   call void @_lfortran_free_alloc(i8* %4, i8* %7)
   store i8* null, i8** %5, align 8
   store i64 0, i64* %6, align 8
-  call void @__module_testdrive_derived_types_32_real_dp_to_string(double* %value, %string_descriptor* %__libasr__created__var__0_return_slot)
+  call void @__module_testdrive_derived_types_32_real_dp_to_string(%string_descriptor* %__libasr__created__var__0_return_slot, double* %value)
   %8 = getelementptr %string_descriptor, %string_descriptor* %__libasr__created__var__0_return_slot, i32 0, i32 1
   %9 = load i64, i64* %8, align 8
   %10 = load %string_descriptor, %string_descriptor* %__libasr__created__var__0_return_slot, align 8
@@ -385,7 +385,7 @@ free_done:                                        ; preds = %free_nonnull, %.ent
   call void @_lfortran_free_alloc(i8* %4, i8* %23)
   store i8* null, i8** %21, align 8
   store i64 0, i64* %22, align 8
-  call void @__module_testdrive_derived_types_32_real_dp_to_string(double* %value, %string_descriptor* %__libasr__created__var__1_return_slot)
+  call void @__module_testdrive_derived_types_32_real_dp_to_string(%string_descriptor* %__libasr__created__var__1_return_slot, double* %value)
   %24 = getelementptr %string_descriptor, %string_descriptor* %__libasr__created__var__1_return_slot, i32 0, i32 0
   %25 = load i8*, i8** %24, align 8
   %26 = getelementptr %string_descriptor, %string_descriptor* %__libasr__created__var__1_return_slot, i32 0, i32 1

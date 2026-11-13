@@ -7,6 +7,58 @@
                     (SymbolTable
                         2
                         {
+                            aimag:
+                                (Variable
+                                    2
+                                    aimag
+                                    []
+                                    Local
+                                    ()
+                                    ()
+                                    Default
+                                    (Real 4)
+                                    ()
+                                    Source
+                                    Public
+                                    Required
+                                    .false.
+                                    .false.
+                                    .false.
+                                    ()
+                                    .false.
+                                    .false.
+                                    .false.
+                                    NotMethod
+                                    ()
+                                    []
+                                    ()
+                                ),
+                            cmplx:
+                                (Variable
+                                    2
+                                    cmplx
+                                    []
+                                    Local
+                                    ()
+                                    ()
+                                    Default
+                                    (Real 4)
+                                    ()
+                                    Source
+                                    Public
+                                    Required
+                                    .false.
+                                    .false.
+                                    .false.
+                                    ()
+                                    .false.
+                                    .false.
+                                    .false.
+                                    NotMethod
+                                    ()
+                                    []
+                                    ()
+                                ),
                             f:
                                 (Variable
                                     2
@@ -17,6 +69,58 @@
                                     ()
                                     Default
                                     (Complex 4)
+                                    ()
+                                    Source
+                                    Public
+                                    Required
+                                    .false.
+                                    .false.
+                                    .false.
+                                    ()
+                                    .false.
+                                    .false.
+                                    .false.
+                                    NotMethod
+                                    ()
+                                    []
+                                    ()
+                                ),
+                            mod:
+                                (Variable
+                                    2
+                                    mod
+                                    []
+                                    Local
+                                    ()
+                                    ()
+                                    Default
+                                    (Integer 4)
+                                    ()
+                                    Source
+                                    Public
+                                    Required
+                                    .false.
+                                    .false.
+                                    .false.
+                                    ()
+                                    .false.
+                                    .false.
+                                    .false.
+                                    NotMethod
+                                    ()
+                                    []
+                                    ()
+                                ),
+                            real:
+                                (Variable
+                                    2
+                                    real
+                                    []
+                                    Local
+                                    ()
+                                    ()
+                                    Default
+                                    (Real 4)
                                     ()
                                     Source
                                     Public

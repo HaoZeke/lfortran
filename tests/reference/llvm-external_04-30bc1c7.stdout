@@ -2,28 +2,28 @@
 source_filename = "LFortran"
 target datalayout = "..."
 
-define void @a() {
+define void @a_() {
 .entry:
   %"b~fpcast_ptr" = alloca void (float ()*, float ()*)*, align 8
   store void (float ()*, float ()*)* null, void (float ()*, float ()*)** %"b~fpcast_ptr", align 8
-  store void (float ()*, float ()*)* bitcast (void ()* @b to void (float ()*, float ()*)*), void (float ()*, float ()*)** %"b~fpcast_ptr", align 8
+  store void (float ()*, float ()*)* bitcast (void ()* @b_ to void (float ()*, float ()*)*), void (float ()*, float ()*)** %"b~fpcast_ptr", align 8
   %0 = load void (float ()*, float ()*)*, void (float ()*, float ()*)** %"b~fpcast_ptr", align 8
-  call void %0(float ()* @f, float ()* @g)
+  call void %0(float ()* @f_, float ()* @g_)
   br label %return
 
 return:                                           ; preds = %.entry
-  br label %FINALIZE_SYMTABLE_a
+  br label %FINALIZE_SYMTABLE_a_
 
-FINALIZE_SYMTABLE_a:                              ; preds = %return
+FINALIZE_SYMTABLE_a_:                             ; preds = %return
   ret void
 }
 
-declare void @b()
+declare void @b_()
 
-declare void @"b~fpcast"(float ()*, float ()*)
+declare void @"b~fpcast_"(float ()*, float ()*)
 
 declare void @"b~fpcast_ptr"(float ()*, float ()*)
 
-declare float @f()
+declare float @f_()
 
-declare float @g()
+declare float @g_()

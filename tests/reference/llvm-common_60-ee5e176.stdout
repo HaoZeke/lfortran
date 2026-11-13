@@ -23,7 +23,7 @@ target datalayout = "..."
 @13 = private unnamed_addr constant [2 x i8] c"\0A\00", align 1
 @14 = private unnamed_addr constant [5 x i8] c"%s%s\00", align 1
 
-define void @common_60_bump(double* %x) {
+define void @common_60_bump_(double* %x) {
 .entry:
   %0 = load double, double* %x, align 1
   %1 = fadd double %0, 1.000000e+00
@@ -31,13 +31,13 @@ define void @common_60_bump(double* %x) {
   br label %return
 
 return:                                           ; preds = %.entry
-  br label %FINALIZE_SYMTABLE_common_60_bump
+  br label %FINALIZE_SYMTABLE_common_60_bump_
 
-FINALIZE_SYMTABLE_common_60_bump:                 ; preds = %return
+FINALIZE_SYMTABLE_common_60_bump_:                ; preds = %return
   ret void
 }
 
-define void @common_60_bump_all(%array.1* %a) {
+define void @common_60_bump_all_(%array.1* %a) {
 .entry:
   %array_descriptor_local = alloca %array.1, align 8
   %0 = getelementptr %array.1, %array.1* %array_descriptor_local, i32 0, i32 0
@@ -192,13 +192,13 @@ do_loop.end:                                      ; preds = %do_loop.head, %ifco
   br label %return
 
 return:                                           ; preds = %do_loop.end
-  br label %FINALIZE_SYMTABLE_common_60_bump_all
+  br label %FINALIZE_SYMTABLE_common_60_bump_all_
 
-FINALIZE_SYMTABLE_common_60_bump_all:             ; preds = %return
+FINALIZE_SYMTABLE_common_60_bump_all_:            ; preds = %return
   ret void
 }
 
-define void @common_60_bump_all_real____0(double* %a, i32* %__1a) {
+define void @common_60_bump_all_real____0_(double* %a, i32* %__1a) {
 .entry:
   %__libasr_index_0_ = alloca i32, align 4
   %__libasr_index_0_1 = alloca i32, align 4
@@ -258,9 +258,9 @@ do_loop.end:                                      ; preds = %do_loop.head, %ifco
   br label %return
 
 return:                                           ; preds = %do_loop.end
-  br label %FINALIZE_SYMTABLE_common_60_bump_all_real____0
+  br label %FINALIZE_SYMTABLE_common_60_bump_all_real____0_
 
-FINALIZE_SYMTABLE_common_60_bump_all_real____0:   ; preds = %return
+FINALIZE_SYMTABLE_common_60_bump_all_real____0_:  ; preds = %return
   ret void
 }
 
@@ -319,7 +319,7 @@ do_loop.head:                                     ; preds = %do_loop.body
 
 do_loop.end:                                      ; preds = %do_loop.head, %ifcont4
   store double 2.500000e+00, double* bitcast (i8* getelementptr inbounds ([28 x i8], [28 x i8]* @__module_file_common_block_common_60_blk_struct_instance_common_60_blk, i32 0, i64 4) to double*), align 4
-  call void @common_60_bump(double* bitcast (i8* getelementptr inbounds ([28 x i8], [28 x i8]* @__module_file_common_block_common_60_blk_struct_instance_common_60_blk, i32 0, i64 4) to double*))
+  call void @common_60_bump_(double* bitcast (i8* getelementptr inbounds ([28 x i8], [28 x i8]* @__module_file_common_block_common_60_blk_struct_instance_common_60_blk, i32 0, i64 4) to double*))
   %14 = load double, double* bitcast (i8* getelementptr inbounds ([28 x i8], [28 x i8]* @__module_file_common_block_common_60_blk_struct_instance_common_60_blk, i32 0, i64 4) to double*), align 4
   %15 = fcmp une double %14, 3.500000e+00
   br i1 %15, label %then5, label %else6
@@ -337,7 +337,7 @@ ifcont7:                                          ; preds = %else6, %then5
   store double 1.000000e+00, double* getelementptr ([3 x double], [3 x double]* bitcast (i8* getelementptr inbounds ([28 x i8], [28 x i8]* @__module_file_common_block_common_60_blk_struct_instance_common_60_blk, i32 0, i64 4) to [3 x double]*), i32 0, i64 1), align 4
   store double 7.000000e+00, double* getelementptr ([3 x double], [3 x double]* bitcast (i8* getelementptr inbounds ([28 x i8], [28 x i8]* @__module_file_common_block_common_60_blk_struct_instance_common_60_blk, i32 0, i64 4) to [3 x double]*), i32 0, i64 2), align 4
   store i32 3, i32* %call_arg_value, align 4
-  call void @common_60_bump_all_real____0(double* getelementptr ([3 x double], [3 x double]* bitcast (i8* getelementptr inbounds ([28 x i8], [28 x i8]* @__module_file_common_block_common_60_blk_struct_instance_common_60_blk, i32 0, i64 4) to [3 x double]*), i32 0, i32 0), i32* %call_arg_value)
+  call void @common_60_bump_all_real____0_(double* getelementptr ([3 x double], [3 x double]* bitcast (i8* getelementptr inbounds ([28 x i8], [28 x i8]* @__module_file_common_block_common_60_blk_struct_instance_common_60_blk, i32 0, i64 4) to [3 x double]*), i32 0, i32 0), i32* %call_arg_value)
   %16 = load double, double* getelementptr ([3 x double], [3 x double]* bitcast (i8* getelementptr inbounds ([28 x i8], [28 x i8]* @__module_file_common_block_common_60_blk_struct_instance_common_60_blk, i32 0, i64 4) to [3 x double]*), i32 0, i64 0), align 4
   %17 = fcmp une double %16, 4.500000e+00
   %18 = load double, double* getelementptr ([3 x double], [3 x double]* bitcast (i8* getelementptr inbounds ([28 x i8], [28 x i8]* @__module_file_common_block_common_60_blk_struct_instance_common_60_blk, i32 0, i64 4) to [3 x double]*), i32 0, i64 1), align 4

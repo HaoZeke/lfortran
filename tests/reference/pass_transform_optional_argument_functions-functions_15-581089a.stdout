@@ -7,136 +7,6 @@
                     (SymbolTable
                         4
                         {
-                            __libasr_created_variable_:
-                                (Variable
-                                    4
-                                    __libasr_created_variable_
-                                    []
-                                    Local
-                                    ()
-                                    ()
-                                    Default
-                                    (Integer 4)
-                                    ()
-                                    Source
-                                    Public
-                                    Required
-                                    .false.
-                                    .false.
-                                    .false.
-                                    ()
-                                    .false.
-                                    .false.
-                                    .false.
-                                    NotMethod
-                                    ()
-                                    []
-                                    ()
-                                ),
-                            __libasr_created_variable_1:
-                                (Variable
-                                    4
-                                    __libasr_created_variable_1
-                                    []
-                                    Local
-                                    ()
-                                    ()
-                                    Default
-                                    (Real 4)
-                                    ()
-                                    Source
-                                    Public
-                                    Required
-                                    .false.
-                                    .false.
-                                    .false.
-                                    ()
-                                    .false.
-                                    .false.
-                                    .false.
-                                    NotMethod
-                                    ()
-                                    []
-                                    ()
-                                ),
-                            __libasr_created_variable_2:
-                                (Variable
-                                    4
-                                    __libasr_created_variable_2
-                                    []
-                                    Local
-                                    ()
-                                    ()
-                                    Default
-                                    (Integer 4)
-                                    ()
-                                    Source
-                                    Public
-                                    Required
-                                    .false.
-                                    .false.
-                                    .false.
-                                    ()
-                                    .false.
-                                    .false.
-                                    .false.
-                                    NotMethod
-                                    ()
-                                    []
-                                    ()
-                                ),
-                            __libasr_created_variable_3:
-                                (Variable
-                                    4
-                                    __libasr_created_variable_3
-                                    []
-                                    Local
-                                    ()
-                                    ()
-                                    Default
-                                    (Real 4)
-                                    ()
-                                    Source
-                                    Public
-                                    Required
-                                    .false.
-                                    .false.
-                                    .false.
-                                    ()
-                                    .false.
-                                    .false.
-                                    .false.
-                                    NotMethod
-                                    ()
-                                    []
-                                    ()
-                                ),
-                            __libasr_created_variable_4:
-                                (Variable
-                                    4
-                                    __libasr_created_variable_4
-                                    []
-                                    Local
-                                    ()
-                                    ()
-                                    Default
-                                    (Integer 4)
-                                    ()
-                                    Source
-                                    Public
-                                    Required
-                                    .false.
-                                    .false.
-                                    .false.
-                                    ()
-                                    .false.
-                                    .false.
-                                    .false.
-                                    NotMethod
-                                    ()
-                                    []
-                                    ()
-                                ),
                             a:
                                 (Variable
                                     4
@@ -194,32 +64,6 @@
                                     (SymbolTable
                                         5
                                         {
-                                            __libasr_is_present_x:
-                                                (Variable
-                                                    5
-                                                    __libasr_is_present_x
-                                                    []
-                                                    In
-                                                    ()
-                                                    ()
-                                                    Default
-                                                    (Logical 4)
-                                                    ()
-                                                    Source
-                                                    Public
-                                                    Required
-                                                    .false.
-                                                    .false.
-                                                    .false.
-                                                    ()
-                                                    .false.
-                                                    .false.
-                                                    .false.
-                                                    NotMethod
-                                                    ()
-                                                    []
-                                                    ()
-                                                ),
                                             f:
                                                 (Variable
                                                     5
@@ -259,7 +103,7 @@
                                                     ()
                                                     Source
                                                     Public
-                                                    Required
+                                                    Optional
                                                     .false.
                                                     .false.
                                                     .false.
@@ -275,8 +119,7 @@
                                         })
                                     f
                                     (FunctionType
-                                        [(Integer 4)
-                                        (Logical 4)]
+                                        [(Integer 4)]
                                         (Logical 4)
                                         Source
                                         Implementation
@@ -291,11 +134,16 @@
                                         Host
                                     )
                                     []
-                                    [(Var 5 x)
-                                    (Var 5 __libasr_is_present_x)]
+                                    [(Var 5 x)]
                                     [(Assignment
                                         (Var 5 f)
-                                        (Var 5 __libasr_is_present_x)
+                                        (IntrinsicElementalFunction
+                                            Present
+                                            [(Var 5 x)]
+                                            0
+                                            (Logical 4)
+                                            ()
+                                        )
                                         ()
                                         .false.
                                         .false.
@@ -361,15 +209,7 @@
                             12.000000
                             (Real 4)
                         ))
-                        ((LogicalConstant
-                            .true.
-                            (Logical 4)
-                        ))
                         ((IntegerConstant 5 (Integer 4) Decimal))
-                        ((LogicalConstant
-                            .true.
-                            (Logical 4)
-                        ))
                         ((RealConstant
                             6.000000
                             (Real 4)
@@ -386,16 +226,8 @@
                             .false.
                             (Logical 4)
                         ))
-                        ((Var 4 __libasr_created_variable_1))
-                        ((LogicalConstant
-                            .false.
-                            (Logical 4)
-                        ))
-                        ((Var 4 __libasr_created_variable_2))
-                        ((LogicalConstant
-                            .false.
-                            (Logical 4)
-                        ))
+                        (())
+                        (())
                         ((RealConstant
                             6.000000
                             (Real 4)
@@ -412,16 +244,8 @@
                             .true.
                             (Logical 4)
                         ))
-                        ((Var 4 __libasr_created_variable_3))
-                        ((LogicalConstant
-                            .false.
-                            (Logical 4)
-                        ))
+                        (())
                         ((IntegerConstant 78 (Integer 4) Decimal))
-                        ((LogicalConstant
-                            .true.
-                            (Logical 4)
-                        ))
                         ((RealConstant
                             117.000000
                             (Real 4)
@@ -442,15 +266,7 @@
                             58.000000
                             (Real 4)
                         ))
-                        ((LogicalConstant
-                            .true.
-                            (Logical 4)
-                        ))
-                        ((Var 4 __libasr_created_variable_4))
-                        ((LogicalConstant
-                            .false.
-                            (Logical 4)
-                        ))
+                        (())
                         ((RealConstant
                             123.000000
                             (Real 4)
@@ -509,11 +325,7 @@
                             [(FunctionCall
                                 4 f
                                 ()
-                                [((Var 4 __libasr_created_variable_))
-                                ((LogicalConstant
-                                    .false.
-                                    (Logical 4)
-                                ))]
+                                [(())]
                                 (Logical 4)
                                 ()
                                 ()
@@ -521,11 +333,7 @@
                             (FunctionCall
                                 4 f
                                 ()
-                                [((IntegerConstant 42 (Integer 4) Decimal))
-                                ((LogicalConstant
-                                    .true.
-                                    (Logical 4)
-                                ))]
+                                [((IntegerConstant 42 (Integer 4) Decimal))]
                                 (Logical 4)
                                 ()
                                 ()
@@ -551,58 +359,6 @@
                                     (SymbolTable
                                         3
                                         {
-                                            __libasr_is_present_d:
-                                                (Variable
-                                                    3
-                                                    __libasr_is_present_d
-                                                    []
-                                                    In
-                                                    ()
-                                                    ()
-                                                    Default
-                                                    (Logical 4)
-                                                    ()
-                                                    Source
-                                                    Public
-                                                    Required
-                                                    .false.
-                                                    .false.
-                                                    .false.
-                                                    ()
-                                                    .false.
-                                                    .false.
-                                                    .false.
-                                                    NotMethod
-                                                    ()
-                                                    []
-                                                    ()
-                                                ),
-                                            __libasr_is_present_e:
-                                                (Variable
-                                                    3
-                                                    __libasr_is_present_e
-                                                    []
-                                                    In
-                                                    ()
-                                                    ()
-                                                    Default
-                                                    (Logical 4)
-                                                    ()
-                                                    Source
-                                                    Public
-                                                    Required
-                                                    .false.
-                                                    .false.
-                                                    .false.
-                                                    ()
-                                                    .false.
-                                                    .false.
-                                                    .false.
-                                                    NotMethod
-                                                    ()
-                                                    []
-                                                    ()
-                                                ),
                                             a:
                                                 (Variable
                                                     3
@@ -694,7 +450,7 @@
                                                     ()
                                                     Source
                                                     Public
-                                                    Required
+                                                    Optional
                                                     .false.
                                                     .false.
                                                     .false.
@@ -720,7 +476,7 @@
                                                     ()
                                                     Source
                                                     Public
-                                                    Required
+                                                    Optional
                                                     .false.
                                                     .false.
                                                     .false.
@@ -766,9 +522,7 @@
                                         (Real 4)
                                         (Logical 4)
                                         (Real 4)
-                                        (Logical 4)
                                         (Integer 4)
-                                        (Logical 4)
                                         (Real 4)]
                                         ()
                                         Source
@@ -788,13 +542,17 @@
                                     (Var 3 b)
                                     (Var 3 c)
                                     (Var 3 d)
-                                    (Var 3 __libasr_is_present_d)
                                     (Var 3 e)
-                                    (Var 3 __libasr_is_present_e)
                                     (Var 3 f)]
                                     [(If
                                         ()
-                                        (Var 3 __libasr_is_present_d)
+                                        (IntrinsicElementalFunction
+                                            Present
+                                            [(Var 3 d)]
+                                            0
+                                            (Logical 4)
+                                            ()
+                                        )
                                         [(Assignment
                                             (Var 3 a)
                                             (Cast
@@ -824,7 +582,13 @@
                                         )
                                         (If
                                             ()
-                                            (Var 3 __libasr_is_present_e)
+                                            (IntrinsicElementalFunction
+                                                Present
+                                                [(Var 3 e)]
+                                                0
+                                                (Logical 4)
+                                                ()
+                                            )
                                             [(Assignment
                                                 (Var 3 b)
                                                 (RealBinOp
@@ -891,7 +655,13 @@
                                         )
                                         (If
                                             ()
-                                            (Var 3 __libasr_is_present_e)
+                                            (IntrinsicElementalFunction
+                                                Present
+                                                [(Var 3 e)]
+                                                0
+                                                (Logical 4)
+                                                ()
+                                            )
                                             [(Assignment
                                                 (Var 3 b)
                                                 (RealBinOp

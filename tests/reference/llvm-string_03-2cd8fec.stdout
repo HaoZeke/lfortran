@@ -36,7 +36,7 @@ target datalayout = "..."
 @16 = private unnamed_addr constant [2 x i8] c"\0A\00", align 1
 @17 = private unnamed_addr constant [5 x i8] c"%s%s\00", align 1
 
-define internal void @_lcompilers_stringconcat_1(i8* %s1, i8* %s2, i32* %s1_len, i32* %s2_len, %string_descriptor* %concat_result, i64 %__libasr_len_s1, i64 %__libasr_len_s2) {
+define internal void @_lcompilers_stringconcat_1(%string_descriptor* %concat_result, i8* %s1, i8* %s2, i32* %s1_len, i32* %s2_len, i64 %__libasr_len_s1, i64 %__libasr_len_s2) {
 .entry:
   %StrSlice_StrView2 = alloca %string_descriptor, align 8
   %0 = call i8* @_lfortran_get_default_allocator()
@@ -241,7 +241,7 @@ define i32 @main(i32 %0, i8** %1) {
   %41 = load i64, i64* %call_arg_value2, align 8
   store i64 8, i64* %call_arg_value3, align 8
   %42 = load i64, i64* %call_arg_value3, align 8
-  call void @_lcompilers_stringconcat_1(i8* %38, i8* %40, i32* %call_arg_value, i32* %call_arg_value1, %string_descriptor* %__libasr__created__var__0_return_slot, i64 %41, i64 %42)
+  call void @_lcompilers_stringconcat_1(%string_descriptor* %__libasr__created__var__0_return_slot, i8* %38, i8* %40, i32* %call_arg_value, i32* %call_arg_value1, i64 %41, i64 %42)
   %43 = getelementptr %string_descriptor, %string_descriptor* %__libasr__created__var__1_return_slot, i32 0, i32 0
   %44 = getelementptr %string_descriptor, %string_descriptor* %__libasr__created__var__1_return_slot, i32 0, i32 1
   %45 = load i8*, i8** %43, align 8
@@ -271,7 +271,7 @@ ifcont:                                           ; preds = %.entry
   %56 = load i64, i64* %call_arg_value2, align 8
   store i64 5, i64* %call_arg_value3, align 8
   %57 = load i64, i64* %call_arg_value3, align 8
-  call void @_lcompilers_stringconcat_1(i8* %51, i8* %53, i32* %call_arg_value, i32* %call_arg_value1, %string_descriptor* %__libasr__created__var__1_return_slot, i64 %56, i64 %57)
+  call void @_lcompilers_stringconcat_1(%string_descriptor* %__libasr__created__var__1_return_slot, i8* %51, i8* %53, i32* %call_arg_value, i32* %call_arg_value1, i64 %56, i64 %57)
   %58 = getelementptr %string_descriptor, %string_descriptor* %__libasr__created__var__2_return_slot, i32 0, i32 0
   %59 = getelementptr %string_descriptor, %string_descriptor* %__libasr__created__var__2_return_slot, i32 0, i32 1
   %60 = load i8*, i8** %58, align 8
@@ -301,7 +301,7 @@ ifcont5:                                          ; preds = %ifcont
   %71 = load i64, i64* %call_arg_value2, align 8
   store i64 4, i64* %call_arg_value3, align 8
   %72 = load i64, i64* %call_arg_value3, align 8
-  call void @_lcompilers_stringconcat_1(i8* %66, i8* %68, i32* %call_arg_value, i32* %call_arg_value1, %string_descriptor* %__libasr__created__var__2_return_slot, i64 %71, i64 %72)
+  call void @_lcompilers_stringconcat_1(%string_descriptor* %__libasr__created__var__2_return_slot, i8* %66, i8* %68, i32* %call_arg_value, i32* %call_arg_value1, i64 %71, i64 %72)
   %73 = getelementptr %string_descriptor, %string_descriptor* %__libasr__created__var__3_return_slot, i32 0, i32 0
   %74 = getelementptr %string_descriptor, %string_descriptor* %__libasr__created__var__3_return_slot, i32 0, i32 1
   %75 = load i8*, i8** %73, align 8
@@ -331,7 +331,7 @@ ifcont7:                                          ; preds = %ifcont5
   %86 = load i64, i64* %call_arg_value2, align 8
   store i64 7, i64* %call_arg_value3, align 8
   %87 = load i64, i64* %call_arg_value3, align 8
-  call void @_lcompilers_stringconcat_1(i8* %81, i8* %83, i32* %call_arg_value, i32* %call_arg_value1, %string_descriptor* %__libasr__created__var__3_return_slot, i64 %86, i64 %87)
+  call void @_lcompilers_stringconcat_1(%string_descriptor* %__libasr__created__var__3_return_slot, i8* %81, i8* %83, i32* %call_arg_value, i32* %call_arg_value1, i64 %86, i64 %87)
   %88 = getelementptr %string_descriptor, %string_descriptor* %__libasr__created__var__4_return_slot, i32 0, i32 0
   %89 = getelementptr %string_descriptor, %string_descriptor* %__libasr__created__var__4_return_slot, i32 0, i32 1
   %90 = load i8*, i8** %88, align 8
@@ -360,7 +360,7 @@ ifcont9:                                          ; preds = %ifcont7
   %100 = load i64, i64* %call_arg_value2, align 8
   store i64 1, i64* %call_arg_value3, align 8
   %101 = load i64, i64* %call_arg_value3, align 8
-  call void @_lcompilers_stringconcat_1(i8* %96, i8* %97, i32* %call_arg_value, i32* %call_arg_value1, %string_descriptor* %__libasr__created__var__4_return_slot, i64 %100, i64 %101)
+  call void @_lcompilers_stringconcat_1(%string_descriptor* %__libasr__created__var__4_return_slot, i8* %96, i8* %97, i32* %call_arg_value, i32* %call_arg_value1, i64 %100, i64 %101)
   %102 = getelementptr %string_descriptor, %string_descriptor* %combined, i32 0, i32 0
   %103 = getelementptr %string_descriptor, %string_descriptor* %combined, i32 0, i32 1
   %104 = getelementptr %string_descriptor, %string_descriptor* %__libasr__created__var__4_return_slot, i32 0, i32 0

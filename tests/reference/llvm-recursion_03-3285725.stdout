@@ -46,7 +46,7 @@ target datalayout = "..."
 @string_const.13 = private global %string_descriptor { i8* getelementptr inbounds ([3 x i8], [3 x i8]* @string_const_data.12, i32 0, i32 0), i64 3 }
 @18 = private unnamed_addr constant [5 x i8] c"%s%s\00", align 1
 
-define i32 @__module_recursion_03_solver(i32 ()* %f, i32* %iter) {
+define i32 @__module_recursion_03_solver(i32 ()* %f_, i32* %iter) {
 .entry:
   %stringFormat_desc2 = alloca %string_descriptor, align 8
   %0 = alloca i64, align 8
@@ -57,7 +57,7 @@ define i32 @__module_recursion_03_solver(i32 ()* %f, i32* %iter) {
   %2 = alloca i64, align 8
   %f_val = alloca i32, align 4
   %solver = alloca i32, align 4
-  %3 = call i32 %f()
+  %3 = call i32 %f_()
   store i32 %3, i32* %f_val, align 4
   %4 = call i8* (i8*, i8*, i64, i8*, i64*, i32, i32, i32, i32, i32, i32, i32, i32, i8**, ...) @_lcompilers_string_format_fortran(i8* %1, i8* null, i64 0, i8* getelementptr inbounds ([15 x i8], [15 x i8]* @serialization_info, i32 0, i32 0), i64* %2, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i8** null, %string_descriptor* @string_const, i32* %f_val)
   %5 = load i64, i64* %2, align 8
@@ -85,7 +85,7 @@ free_done:                                        ; preds = %free_nonnull, %.ent
   store i32 %15, i32* %call_arg_value1, align 4
   %16 = call i32 @__module_recursion_03_sub1(i32* %call_arg_value, i32* %call_arg_value1)
   store i32 %16, i32* %solver, align 4
-  %17 = call i32 %f()
+  %17 = call i32 %f_()
   store i32 %17, i32* %f_val, align 4
   %18 = call i8* (i8*, i8*, i64, i8*, i64*, i32, i32, i32, i32, i32, i32, i32, i32, i8**, ...) @_lcompilers_string_format_fortran(i8* %1, i8* null, i64 0, i8* getelementptr inbounds ([15 x i8], [15 x i8]* @serialization_info.1, i32 0, i32 0), i64* %0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i8** null, %string_descriptor* @string_const.3, i32* %f_val)
   %19 = load i64, i64* %0, align 8
@@ -117,10 +117,10 @@ FINALIZE_SYMTABLE_solver:                         ; preds = %return
   ret i32 %28
 }
 
-define i32 @__module_recursion_03_solver_caller(i32 ()* %f, i32* %iter) {
+define i32 @__module_recursion_03_solver_caller(i32 ()* %f_, i32* %iter) {
 .entry:
   %solver_caller = alloca i32, align 4
-  %0 = call i32 @__module_recursion_03_solver(i32 ()* %f, i32* %iter)
+  %0 = call i32 @__module_recursion_03_solver(i32 ()* %f_, i32* %iter)
   store i32 %0, i32* %solver_caller, align 4
   br label %return
 

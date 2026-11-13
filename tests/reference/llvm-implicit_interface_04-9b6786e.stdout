@@ -129,7 +129,7 @@ FINALIZE_SYMTABLE_main:                           ; preds = %return
   ret i32 0
 }
 
-define internal void @main.driver(void ()* %fnc, i32* %arr, i32* %m) {
+define internal void @main.driver(void ()* %fnc_, i32* %arr, i32* %m) {
 .entry:
   %stringFormat_desc = alloca %string_descriptor, align 8
   %0 = call i8* @_lfortran_get_default_allocator()
@@ -163,7 +163,7 @@ free_nonnull:                                     ; preds = %.entry
   br label %free_done
 
 free_done:                                        ; preds = %free_nonnull, %.entry
-  %16 = bitcast void ()* %fnc to void (i32*, i32*, i32*)*
+  %16 = bitcast void ()* %fnc_ to void (i32*, i32*, i32*)*
   store void (i32*, i32*, i32*)* %16, void (i32*, i32*, i32*)** %"fnc~fpcast_ptr", align 8
   %17 = load void (i32*, i32*, i32*)*, void (i32*, i32*, i32*)** %"fnc~fpcast_ptr", align 8
   %18 = load i32, i32* %__libasr_extent_arr_1, align 4
@@ -191,7 +191,7 @@ FINALIZE_SYMTABLE_driver:                         ; preds = %return
   ret void
 }
 
-declare void @"fnc~fpcast"(i32*, i32*, i32*)
+declare void @"fnc~fpcast_"(i32*, i32*, i32*)
 
 declare void @"fnc~fpcast_ptr"(i32*, i32*, i32*)
 

@@ -8,7 +8,7 @@ target datalayout = "..."
 @serialization_info = private unnamed_addr constant [3 x i8] c"R4\00", align 1
 @1 = private unnamed_addr constant [5 x i8] c"%s%s\00", align 1
 
-define void @a(float ()* %f) {
+define void @a_(float ()* %f_) {
 .entry:
   %stringFormat_desc = alloca %string_descriptor, align 8
   %0 = call i8* @_lfortran_get_default_allocator()
@@ -17,7 +17,7 @@ define void @a(float ()* %f) {
   %"f~fpcast_ptr" = alloca float (float*)*, align 8
   store float (float*)* null, float (float*)** %"f~fpcast_ptr", align 8
   %r = alloca float, align 4
-  %2 = bitcast float ()* %f to float (float*)*
+  %2 = bitcast float ()* %f_ to float (float*)*
   store float (float*)* %2, float (float*)** %"f~fpcast_ptr", align 8
   %3 = load float (float*)*, float (float*)** %"f~fpcast_ptr", align 8
   store float 2.000000e+00, float* %call_arg_value, align 4
@@ -46,29 +46,29 @@ free_done:                                        ; preds = %free_nonnull, %.ent
   br label %return
 
 return:                                           ; preds = %free_done
-  br label %FINALIZE_SYMTABLE_a
+  br label %FINALIZE_SYMTABLE_a_
 
-FINALIZE_SYMTABLE_a:                              ; preds = %return
+FINALIZE_SYMTABLE_a_:                             ; preds = %return
   ret void
 }
 
-declare float @"f~fpcast"(float*)
+declare float @"f~fpcast_"(float*)
 
 declare float @"f~fpcast_ptr"(float*)
 
-define void @b() {
+define void @b_() {
 .entry:
-  call void @a(float ()* @f)
+  call void @a_(float ()* @f_)
   br label %return
 
 return:                                           ; preds = %.entry
-  br label %FINALIZE_SYMTABLE_b
+  br label %FINALIZE_SYMTABLE_b_
 
-FINALIZE_SYMTABLE_b:                              ; preds = %return
+FINALIZE_SYMTABLE_b_:                             ; preds = %return
   ret void
 }
 
-declare float @f()
+declare float @f_()
 
 declare i8* @_lcompilers_string_format_fortran(i8*, i8*, i64, i8*, i64*, i32, i32, i32, i32, i32, i32, i32, i32, i8**, ...)
 
@@ -81,7 +81,7 @@ declare void @_lfortran_free_alloc(i8*, i8*)
 define i32 @main(i32 %0, i8** %1) {
 .entry:
   call void @_lpython_call_initial_functions(i32 %0, i8** %1)
-  call void @b()
+  call void @b_()
   br label %return
 
 return:                                           ; preds = %.entry

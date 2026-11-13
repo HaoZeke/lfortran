@@ -2,14 +2,14 @@
 source_filename = "LFortran"
 target datalayout = "..."
 
-define void @find_fit(i32 ()* %expr) {
+define void @find_fit_(i32 ()* %expr_) {
 .entry:
   br label %return
 
 return:                                           ; preds = %.entry
-  br label %FINALIZE_SYMTABLE_find_fit
+  br label %FINALIZE_SYMTABLE_find_fit_
 
-FINALIZE_SYMTABLE_find_fit:                       ; preds = %return
+FINALIZE_SYMTABLE_find_fit_:                      ; preds = %return
   ret void
 }
 

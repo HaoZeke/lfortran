@@ -477,6 +477,32 @@
                                     []
                                     ()
                                 ),
+                            integerklm:
+                                (Variable
+                                    4
+                                    integerklm
+                                    []
+                                    Local
+                                    ()
+                                    ()
+                                    Default
+                                    (Integer 4)
+                                    ()
+                                    Source
+                                    Public
+                                    Required
+                                    .false.
+                                    .false.
+                                    .false.
+                                    ()
+                                    .false.
+                                    .false.
+                                    .false.
+                                    NotMethod
+                                    ()
+                                    []
+                                    ()
+                                ),
                             j:
                                 (Variable
                                     4
@@ -538,6 +564,32 @@
                                     (IntegerConstant 4 (Integer 4) Decimal)
                                     (IntegerConstant 4 (Integer 4) Decimal)
                                     Save
+                                    (Integer 4)
+                                    ()
+                                    Source
+                                    Public
+                                    Required
+                                    .false.
+                                    .false.
+                                    .false.
+                                    ()
+                                    .false.
+                                    .false.
+                                    .false.
+                                    NotMethod
+                                    ()
+                                    []
+                                    ()
+                                ),
+                            n5:
+                                (Variable
+                                    4
+                                    n5
+                                    []
+                                    Local
+                                    ()
+                                    ()
+                                    Default
                                     (Integer 4)
                                     ()
                                     Source
@@ -983,6 +1035,33 @@
                     [(FileClose
                         0
                         (IntegerConstant 200 (Integer 4) Decimal)
+                        ()
+                        ()
+                        ()
+                        ()
+                    )
+                    (Assignment
+                        (Var 4 integerklm)
+                        (IntegerConstant 5 (Integer 4) Decimal)
+                        ()
+                        .false.
+                        .false.
+                        .false.
+                        .false.
+                    )
+                    (FileRead
+                        0
+                        ()
+                        ()
+                        ()
+                        ()
+                        ()
+                        ()
+                        ()
+                        ()
+                        [(Var 4 n5)]
+                        ()
+                        .false.
                         ()
                         ()
                         ()

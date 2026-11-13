@@ -193,17 +193,17 @@ FINALIZE_SYMTABLE__lcompilers_len_trim_str:       ; preds = %return
   ret i32 %28
 }
 
-define internal void @_lcompilers_trim_str(i8* %str, i8* %result, i64 %__libasr_len_str, i64 %__libasr_len_result) {
+define internal void @_lcompilers_trim_str(i8* %result, i64 %__libasr_len_result, i8* %str, i64 %__libasr_len_str) {
 .entry:
   %0 = call i8* @_lfortran_get_default_allocator()
   %StrSlice_StrView = alloca %string_descriptor, align 8
   %call_arg_value = alloca i64, align 8
   %result_desc = alloca %string_descriptor, align 8
   %str_desc = alloca %string_descriptor, align 8
-  %__libasr_len_str_value = alloca i64, align 8
-  store i64 %__libasr_len_str, i64* %__libasr_len_str_value, align 8
   %__libasr_len_result_value = alloca i64, align 8
   store i64 %__libasr_len_result, i64* %__libasr_len_result_value, align 8
+  %__libasr_len_str_value = alloca i64, align 8
+  store i64 %__libasr_len_str, i64* %__libasr_len_str_value, align 8
   %1 = getelementptr %string_descriptor, %string_descriptor* %str_desc, i32 0, i32 0
   store i8* %str, i8** %1, align 8
   %2 = getelementptr %string_descriptor, %string_descriptor* %result_desc, i32 0, i32 0
@@ -347,7 +347,7 @@ ifcont:                                           ; preds = %else, %then
   %42 = load i64, i64* %41, align 8
   store i64 %42, i64* %call_arg_value2, align 8
   %43 = load i64, i64* %call_arg_value2, align 8
-  call void @_lcompilers_trim_str(i8* %37, i8* %39, i64 %40, i64 %43)
+  call void @_lcompilers_trim_str(i8* %39, i64 %43, i8* %37, i64 %40)
   %44 = getelementptr %string_descriptor, %string_descriptor* %__libasr__created__var__0_return_slot, i32 0, i32 0
   %45 = load i8*, i8** %44, align 8
   %46 = getelementptr %string_descriptor, %string_descriptor* %__libasr__created__var__0_return_slot, i32 0, i32 1

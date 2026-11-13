@@ -2,27 +2,27 @@
 source_filename = "LFortran"
 target datalayout = "..."
 
-define void @cobyla(double ()* %calcfc) {
+define void @cobyla_(double ()* %calcfc_) {
 .entry:
-  call void @cobylb(double ()* %calcfc)
+  call void @cobylb_(double ()* %calcfc_)
   br label %return
 
 unreachable_after_return:                         ; No predecessors!
   br label %return
 
 return:                                           ; preds = %unreachable_after_return, %.entry
-  br label %FINALIZE_SYMTABLE_cobyla
+  br label %FINALIZE_SYMTABLE_cobyla_
 
-FINALIZE_SYMTABLE_cobyla:                         ; preds = %return
+FINALIZE_SYMTABLE_cobyla_:                        ; preds = %return
   ret void
 }
 
-define void @cobylb(double ()* %calcfc) {
+define void @cobylb_(double ()* %calcfc_) {
 .entry:
   %"calcfc~fpcast_ptr" = alloca void (double*)*, align 8
   store void (double*)* null, void (double*)** %"calcfc~fpcast_ptr", align 8
   %con = alloca double, align 8
-  %0 = bitcast double ()* %calcfc to void (double*)*
+  %0 = bitcast double ()* %calcfc_ to void (double*)*
   store void (double*)* %0, void (double*)** %"calcfc~fpcast_ptr", align 8
   %1 = load void (double*)*, void (double*)** %"calcfc~fpcast_ptr", align 8
   call void %1(double* %con)
@@ -32,12 +32,12 @@ unreachable_after_return:                         ; No predecessors!
   br label %return
 
 return:                                           ; preds = %unreachable_after_return, %.entry
-  br label %FINALIZE_SYMTABLE_cobylb
+  br label %FINALIZE_SYMTABLE_cobylb_
 
-FINALIZE_SYMTABLE_cobylb:                         ; preds = %return
+FINALIZE_SYMTABLE_cobylb_:                        ; preds = %return
   ret void
 }
 
-declare void @"calcfc~fpcast"(double*)
+declare void @"calcfc~fpcast_"(double*)
 
 declare void @"calcfc~fpcast_ptr"(double*)

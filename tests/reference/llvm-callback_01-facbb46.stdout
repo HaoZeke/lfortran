@@ -8,15 +8,15 @@ target datalayout = "..."
 @serialization_info = private unnamed_addr constant [3 x i8] c"R4\00", align 1
 @1 = private unnamed_addr constant [5 x i8] c"%s%s\00", align 1
 
-define float @__module_callback_01_cb(float (float*)* %f, float* %a, float* %b) {
+define float @__module_callback_01_cb(float (float*)* %f_, float* %a, float* %b) {
 .entry:
   %cb = alloca float, align 4
   %0 = load float, float* %b, align 1
   %1 = load float, float* %a, align 1
   %2 = fsub float %0, %1
-  %3 = call float %f(float* %a)
+  %3 = call float %f_(float* %a)
   %4 = fadd float %2, %3
-  %5 = call float %f(float* %b)
+  %5 = call float %f_(float* %b)
   %6 = fadd float %4, %5
   store float %6, float* %cb, align 4
   br label %return
