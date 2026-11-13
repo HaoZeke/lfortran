@@ -12437,9 +12437,19 @@ public:
                 llvm::Value* arg_data = llvm_utils->CreateLoad2(
                     data_type->getPointerTo(),
                     arr_descr->get_pointer_to_data(desc_array_type, arg_array_desc));
-                builder->CreateStore(
-                    llvm_utils->create_ptr_gep2(data_type, arg_data, arg_offset),
-                    local_data_ptr);
+                // A disassociated pointer, or an absent optional, has a null
+                // data pointer. Adding the offset to it yields a non-null
+                // address, so present() would say the dummy is present.
+                llvm::Value* adjusted = llvm_utils->create_ptr_gep2(
+                    data_type, arg_data, arg_offset);
+                llvm::Value* data_is_null = builder->CreateICmpEQ(arg_data,
+                    llvm::ConstantPointerNull::get(
+                        llvm::cast<llvm::PointerType>(arg_data->getType())));
+                adjusted = builder->CreateSelect(data_is_null,
+                    llvm::ConstantPointerNull::get(
+                        llvm::cast<llvm::PointerType>(adjusted->getType())),
+                    adjusted);
+                builder->CreateStore(adjusted, local_data_ptr);
                 if (is_assumed_rank) {
                     // The rank is not part of the type. Copy it, and that
                     // many dimension descriptors, from the incoming
