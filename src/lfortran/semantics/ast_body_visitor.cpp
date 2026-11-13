@@ -10279,7 +10279,11 @@ public:
             }
         }
         if (x.n_member == 0 && !is_external && !(original_sym
-                && ASRUtils::is_intrinsic_symbol(original_sym))) {
+                && ASRUtils::is_intrinsic_symbol(original_sym))
+                && to_lower(sub_name) != "newunit") {
+            // open(newunit=u) is lowered to a compiler call of that name.
+            // It is not a user procedure, so implicit none (external) does
+            // not apply to it.
             check_implicit_none_external(sub_name, declared_sym,
                 x.base.base.loc);
         }
