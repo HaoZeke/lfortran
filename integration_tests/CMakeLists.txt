@@ -5606,6 +5606,8 @@ RUN(NAME openmp_cond_01 LABELS gfortran llvm
 RUN(NAME character_function_abi_01 LABELS gfortran llvm
     EXTRAFILES character_function_abi_01.c
     EXTRA_ARGS --mangle-underscore-external)
+RUN(NAME external_underscore_default_01 LABELS gfortran llvm
+    EXTRAFILES external_underscore_default_01.c)
 RUN(NAME dimensions_decl_order_01 LABELS gfortran llvm
     EXTRA_ARGS --implicit-typing) # a dummy may bound an array before it is declared, also under implicit none
 

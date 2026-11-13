@@ -210,6 +210,9 @@ namespace LCompilers::CommandLineInterface {
         compiler_options.c_preprocessor = false;
         compiler_options.infer_mode = false;
         compiler_options.po.openmp = compiler_options.openmp;
+        // GFortran appends one underscore to an external procedure. The
+        // fast path returns before the rest of parse() applies this.
+        compiler_options.po.mangle_underscore_external = true;
         parser.opts = std::move(fast_opts);
         initialize_subcommands(parser);
         return true;
@@ -732,6 +735,11 @@ namespace LCompilers::CommandLineInterface {
         } else if (legacy_fixed_form) {
             compiler_options.implicit_typing = true;
         }
+
+        // GFortran appends one underscore to an external procedure. f2py's
+        // wrappers do the same, so a library this compiler builds has to
+        // match them. bind(c) names are left unchanged.
+        compiler_options.po.mangle_underscore_external = true;
 
         if (disable_implicit_argument_casting) {
             compiler_options.implicit_argument_casting = false;

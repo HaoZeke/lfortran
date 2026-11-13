@@ -276,7 +276,12 @@ class SymbolRenameVisitor: public ASR::BaseWalkVisitor<SymbolRenameVisitor> {
                                             startswith(name, "_lcompilers"));
                 if (!has_reserved_prefix && !name.empty()) {
                     ASR::symbol_t *sym = ASR::down_cast<ASR::symbol_t>((ASR::asr_t*)&x);
-                    sym_to_renamed[sym] = name + "_";
+                    // Another mangling option already named this symbol.
+                    // Leave that name alone; this option only supplies the
+                    // GFortran underscore when nothing else did.
+                    if (sym_to_renamed.find(sym) == sym_to_renamed.end()) {
+                        sym_to_renamed[sym] = name + "_";
+                    }
                 }
             }
         }
