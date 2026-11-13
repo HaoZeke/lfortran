@@ -20139,6 +20139,29 @@ public:
                     llvm::Value* x2 = builder->CreateMul(left_val, left_val, "simplified_pow_operation");
                     llvm::Value* x4 = builder->CreateMul(x2, x2, "simplified_pow_operation");
                     tmp = builder->CreateMul(x4, x4, "simplified_pow_operation");
+                } else if (llvm::isa<llvm::ConstantInt>(left_val)
+                        && (llvm::cast<llvm::ConstantInt>(left_val)->isMinusOne()
+                            || llvm::cast<llvm::ConstantInt>(left_val)->isZero()
+                            || llvm::cast<llvm::ConstantInt>(left_val)->isOne())) {
+                    // (-1)**n is a parity test. A call to the general
+                    // exponentiation helper in a recurrence is the whole
+                    // difference against gfortran, which uses the low bit.
+                    // 1**n is 1 for every n, and 0**n is 1 only when n is 0.
+                    llvm::ConstantInt *base = llvm::cast<llvm::ConstantInt>(left_val);
+                    llvm::Type *ty = left_val->getType();
+                    auto iconst = [&](int64_t v) {
+                        return llvm::ConstantInt::get(ty, v, true);
+                    };
+                    if (base->isOne()) {
+                        tmp = iconst(1);
+                    } else if (base->isZero()) {
+                        llvm::Value *zero_exp = builder->CreateICmpEQ(right_val, iconst(0));
+                        tmp = builder->CreateSelect(zero_exp, iconst(1), iconst(0));
+                    } else {
+                        llvm::Value *odd = builder->CreateICmpNE(
+                            builder->CreateAnd(right_val, iconst(1)), iconst(0));
+                        tmp = builder->CreateSelect(odd, iconst(-1), iconst(1));
+                    }
                 } else if (left_val->getType()->isIntegerTy()
                         && left_val->getType()->getIntegerBitWidth() > 64) {
                     // integer(16) ** n, including a runtime exponent. The i64
