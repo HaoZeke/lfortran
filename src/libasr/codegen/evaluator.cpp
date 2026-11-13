@@ -1403,9 +1403,161 @@ static void disable_load_pre() {
     }
 }
 
+// A column-major element wy(k, j) is one i64 GEP whose index is
+// sext(k) plus a column offset. LLVM 11 then gathers with vgatherqpd.
+// gfortran -march=native uses vgatherdpd, which keeps the loaded index
+// in i32. Splitting the unit-stride sext off the i64 offset is the same
+// address: the i32 index is sign-extended by the GEP, and a negative
+// constant such as the -1 of a 1-based subscript stays on the i64 side so
+// it cannot overflow. The intermediate pointer is not inbounds, because
+// that constant can sit one element before the allocation.
+struct SextAffine {
+    llvm::Value* i32;
+    int64_t off;
+};
+
+static bool add_i64(int64_t a, int64_t b, int64_t& out) {
+    return !__builtin_add_overflow(a, b, &out);
+}
+
+static SextAffine* match_sext_affine(llvm::Value* v, SextAffine& out, int depth) {
+    if (v == nullptr || depth > 8) {
+        return nullptr;
+    }
+    if (auto* sext = llvm::dyn_cast<llvm::SExtInst>(v)) {
+        if (sext->getOperand(0)->getType()->isIntegerTy(32)) {
+            out.i32 = sext->getOperand(0);
+            out.off = 0;
+            return &out;
+        }
+        return nullptr;
+    }
+    auto* bin = llvm::dyn_cast<llvm::BinaryOperator>(v);
+    if (bin == nullptr) {
+        return nullptr;
+    }
+    unsigned op = bin->getOpcode();
+    if (op == llvm::Instruction::Mul) {
+        llvm::ConstantInt* scale = nullptr;
+        llvm::Value* other = nullptr;
+        if (auto* c = llvm::dyn_cast<llvm::ConstantInt>(bin->getOperand(1))) {
+            scale = c;
+            other = bin->getOperand(0);
+        } else if (auto* c = llvm::dyn_cast<llvm::ConstantInt>(bin->getOperand(0))) {
+            scale = c;
+            other = bin->getOperand(1);
+        }
+        if (scale == nullptr || !scale->isOne()) {
+            return nullptr;
+        }
+        return match_sext_affine(other, out, depth + 1);
+    }
+    if (op != llvm::Instruction::Add && op != llvm::Instruction::Sub) {
+        return nullptr;
+    }
+    llvm::ConstantInt* c = llvm::dyn_cast<llvm::ConstantInt>(bin->getOperand(1));
+    llvm::Value* other = bin->getOperand(0);
+    if (c == nullptr && op == llvm::Instruction::Add) {
+        c = llvm::dyn_cast<llvm::ConstantInt>(bin->getOperand(0));
+        other = bin->getOperand(1);
+    }
+    if (c == nullptr || !c->getValue().isSignedIntN(63)) {
+        return nullptr;
+    }
+    if (match_sext_affine(other, out, depth + 1) == nullptr) {
+        return nullptr;
+    }
+    int64_t delta = c->getSExtValue();
+    if (op == llvm::Instruction::Sub) {
+        delta = -delta;
+    }
+    int64_t sum = 0;
+    if (!add_i64(out.off, delta, sum)) {
+        return nullptr;
+    }
+    out.off = sum;
+    return &out;
+}
+
+static bool narrow_gather_index(llvm::GetElementPtrInst* gep) {
+    if (gep->getNumIndices() != 1) {
+        return false;
+    }
+    llvm::Type* ty = gep->getSourceElementType();
+    if (ty->isAggregateType()) {
+        return false;
+    }
+    llvm::Value* idx = gep->getOperand(1);
+    if (!idx->getType()->isIntegerTy(64)) {
+        return false;
+    }
+    llvm::Value* key = nullptr;
+    llvm::Value* rest = nullptr;
+    int64_t off = 0;
+    SextAffine affine;
+    if (match_sext_affine(idx, affine, 0) != nullptr) {
+        key = affine.i32;
+        off = affine.off;
+    } else if (auto* add = llvm::dyn_cast<llvm::BinaryOperator>(idx)) {
+        if (add->getOpcode() == llvm::Instruction::Add) {
+            SextAffine side;
+            if (match_sext_affine(add->getOperand(0), side, 0) != nullptr) {
+                key = side.i32;
+                off = side.off;
+                rest = add->getOperand(1);
+            } else if (match_sext_affine(add->getOperand(1), side, 0) != nullptr) {
+                key = side.i32;
+                off = side.off;
+                rest = add->getOperand(0);
+            }
+        }
+    }
+    if (key == nullptr) {
+        return false;
+    }
+    llvm::IRBuilder<> builder(gep);
+    llvm::Value* base = gep->getPointerOperand();
+    if (off != 0) {
+        llvm::Value* coff = llvm::ConstantInt::getSigned(idx->getType(), off);
+        rest = rest == nullptr ? coff : builder.CreateAdd(rest, coff);
+    }
+    if (rest != nullptr) {
+        base = builder.CreateGEP(ty, base, rest);
+    }
+    // The adjusted base can be one element before the allocation (the
+    // usual 1-based subscript). An inbounds GEP from that pointer is poison.
+    bool final_inbounds = gep->isInBounds() && rest == nullptr;
+    llvm::Value* narrowed = final_inbounds
+        ? builder.CreateInBoundsGEP(ty, base, key)
+        : builder.CreateGEP(ty, base, key);
+    gep->replaceAllUsesWith(narrowed);
+    gep->eraseFromParent();
+    return true;
+}
+
+static void narrow_gather_indices(llvm::Module& m) {
+    for (llvm::Function& fn : m) {
+        if (fn.empty()) {
+            continue;
+        }
+        llvm::SmallVector<llvm::GetElementPtrInst*, 16> geps;
+        for (llvm::BasicBlock& bb : fn) {
+            for (llvm::Instruction& inst : bb) {
+                if (auto* gep = llvm::dyn_cast<llvm::GetElementPtrInst>(&inst)) {
+                    geps.push_back(gep);
+                }
+            }
+        }
+        for (llvm::GetElementPtrInst* gep : geps) {
+            narrow_gather_index(gep);
+        }
+    }
+}
+
 void LLVMEvaluator::opt(llvm::Module &m) {
     configure_module(m);
     disable_load_pre();
+    narrow_gather_indices(m);
 
 #if LLVM_VERSION_MAJOR >= 17
     llvm::LoopAnalysisManager LAM;

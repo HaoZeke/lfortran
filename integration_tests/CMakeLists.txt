@@ -7999,6 +7999,9 @@ RUN(NAME matmul_inner_01 LABELS gfortran llvm EXTRA_ARGS --fast --no-fast-math)
 # Indexed saxpy with a division. --fast --no-fast-math keeps it scalar;
 # the values are the in-order sum.
 RUN(NAME gather_div_01 LABELS gfortran llvm EXTRA_ARGS --fast --no-fast-math)
+# Indirect column update. The loaded index is 32-bit; the values are the
+# in-order sum, contracted under --fast.
+RUN(NAME gather_idx_01 LABELS gfortran llvm EXTRA_ARGS --fast)
 # Strided inner product. --fast must keep the sum, including when the
 # strided operand is not gathered.
 RUN(NAME matmul_strided_01 LABELS gfortran llvm EXTRA_ARGS --fast)
