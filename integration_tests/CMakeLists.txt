@@ -5596,6 +5596,7 @@ RUN(NAME bindc_module_variable_01 LABELS gfortran llvm
     EXTRA_ARGS --separate-compilation)
 RUN(NAME character_string_array_01 LABELS gfortran llvm)
 RUN(NAME character_array_output_01 LABELS gfortran llvm)
+RUN(NAME character_array_transfer_01 LABELS gfortran llvm)
 RUN(NAME optional_kinds_01 LABELS gfortran llvm)
 RUN(NAME dimensions_decl_order_01 LABELS gfortran llvm
     EXTRA_ARGS --implicit-typing) # a dummy may bound an array before it is declared, also under implicit none

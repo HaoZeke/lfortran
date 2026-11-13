@@ -22411,24 +22411,23 @@ public:
         } else {
             if( ASR::is_a<ASR::ArrayConstant_t>(*mold) ||
                 ASRUtils::is_array(ASRUtils::expr_type(mold)) ) {
-                // Check if mold is an ArraySection with explicit bounds 
+                // An array section used as a mold, as in
+                // `o(i, :) = transfer(c(i), o(i, :))`, gives a rank-1
+                // result with the section's number of elements. The first
+                // subscript of that section is not the size.
                 if (ASR::is_a<ASR::ArraySection_t>(*mold)) {
-                    ASR::ArraySection_t* array_section = ASR::down_cast<ASR::ArraySection_t>(mold);
-                    if (array_section->n_args > 0 && array_section->m_args[0].m_right) {
-                        ASR::dimension_t size_dim;
-                        size_dim.loc = x.base.base.loc;
-                        ASR::expr_t* start = array_section->m_args[0].m_left;
-                        if (!start) {
-                            ASR::ttype_t *int_type = ASRUtils::TYPE(ASR::make_Integer_t(al, x.base.base.loc, compiler_options.po.default_integer_kind));
-                            start = ASRUtils::EXPR(ASR::make_IntegerConstant_t(al, x.base.base.loc, 1, int_type));
-                        }
-                        size_dim.m_start = start;
-                        size_dim.m_length = array_section->m_args[0].m_right;
-                        new_dims.push_back(al, size_dim);
-                        ASR::ttype_t* type = ASRUtils::type_get_past_allocatable(
-                            ASRUtils::duplicate_type(al, ASRUtils::expr_type(mold), &new_dims));
-                        return ASR::make_BitCast_t(al, x.base.base.loc, source, mold, size, type, nullptr);
-                    }
+                    ASR::ttype_t *int_type = ASRUtils::TYPE(ASR::make_Integer_t(
+                        al, x.base.base.loc, compiler_options.po.default_integer_kind));
+                    ASR::dimension_t size_dim;
+                    size_dim.loc = x.base.base.loc;
+                    size_dim.m_start = ASRUtils::EXPR(ASR::make_IntegerConstant_t(
+                        al, x.base.base.loc, 1, int_type));
+                    size_dim.m_length = ASRUtils::get_size(mold, al, true,
+                        compiler_options.po.default_integer_kind);
+                    new_dims.push_back(al, size_dim);
+                    ASR::ttype_t* type = ASRUtils::type_get_past_allocatable(
+                        ASRUtils::duplicate_type(al, ASRUtils::expr_type(mold), &new_dims));
+                    return ASR::make_BitCast_t(al, x.base.base.loc, source, mold, size, type, nullptr);
                 }
                 // Calculate resulting array size from source and mold byte sizes
                 ASR::ttype_t* src_type = ASRUtils::type_get_past_allocatable(
