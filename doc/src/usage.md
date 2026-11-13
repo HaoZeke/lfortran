@@ -398,6 +398,14 @@ so the link does not mix a newer object with an older executable. It does
 not invoke clang or gcc for that link. `--linker` selects a different
 linker: `lld` is the built-in one, and `clang` or `gcc` is an external
 compiler driver (on macOS, `--linker=clang` uses Apple's clang and linker).
+An external link is executed as an argument vector (`posix_spawnp` on
+Unix, `_spawnvp` on Windows), so a space in `-o` or in a `-Wl` path
+stays one argument. That link also searches the library directories
+reported by the system C compiler (`cc -print-search-dirs`), which is
+where a distro places libraries such as `libz`. `--openmp` defines
+`_OPENMP` as `201511` for the preprocessor. The link adds `libgomp`
+when that flag is set or when an object refers to the OpenMP runtime,
+and uses `libomp` if `libgomp` is not installed.
 `--linker-path` and `LFORTRAN_LINKER` / `LFORTRAN_LINKER_PATH` apply to an
 external driver. On macOS the built-in linker needs LLVM 15 or newer (the
 first LLD that reads the dylibs Apple's linker writes); builds with older
