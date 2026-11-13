@@ -72,6 +72,8 @@
 #include <spawn.h>
 #include <sys/wait.h>
 extern char **environ;
+#else
+#include <process.h>
 #endif
 
 #include <cpp-terminal/terminal.h>
@@ -2020,15 +2022,22 @@ int exec_argv(const std::vector<std::string> &args) {
     if (args.empty()) {
         return 127;
     }
-#ifdef _WIN32
-    return system(shell_join(args).c_str());
-#else
     std::vector<char *> argv;
     argv.reserve(args.size() + 1);
     for (const std::string &arg : args) {
         argv.push_back(const_cast<char *>(arg.c_str()));
     }
     argv.push_back(nullptr);
+#ifdef _WIN32
+    // _spawnvp takes an argv vector. system() would pass POSIX quotes to cmd.exe,
+    // which splits a path that contains a space.
+    intptr_t spawned = _spawnvp(_P_WAIT, argv[0],
+        const_cast<const char * const *>(argv.data()));
+    if (spawned == -1) {
+        return 127;
+    }
+    return spawned == 0 ? 0 : 1;
+#else
     pid_t pid = 0;
     if (posix_spawnp(&pid, argv[0], nullptr, nullptr, argv.data(), environ) != 0) {
         return 127;
@@ -2055,8 +2064,14 @@ std::vector<std::string> c_compiler_library_directories() {
         return dirs;
     }
     cached = true;
+#ifdef _WIN32
+    std::string command = "\"" + get_c_compiler("cc") + "\" -print-search-dirs 2>NUL";
+    const char path_sep = ';';
+#else
     std::string command = shell_quote(get_c_compiler("cc"))
         + " -print-search-dirs 2>/dev/null";
+    const char path_sep = ':';
+#endif
     FILE *pipe = popen(command.c_str(), "r");
     if (pipe == nullptr) {
         return dirs;
@@ -2086,7 +2101,7 @@ std::vector<std::string> c_compiler_library_directories() {
     }
     std::stringstream stream(list);
     std::string dir;
-    while (std::getline(stream, dir, ':')) {
+    while (std::getline(stream, dir, path_sep)) {
         if (!dir.empty() && dir[0] == '=') {
             dir.erase(0, 1);
         }
