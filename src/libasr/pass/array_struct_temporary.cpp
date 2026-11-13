@@ -1441,8 +1441,19 @@ bool set_allocation_size(
                 allocate_dim.m_length = bit_cast->m_size;
                 allocate_dims.push_back(al, allocate_dim);
             } else {
-                size_t mold_dims = ASRUtils::extract_n_dims_from_ttype(bit_cast->m_type);
-                if (mold_dims != 0) {
+                // SIZE is absent. An array mold's result length is the
+                // length already stored on the result type (enough elements
+                // to hold the source), not the element kind and not the
+                // mold array's own size.
+                ASR::dimension_t* result_dims = nullptr;
+                size_t result_n_dims = ASRUtils::extract_dimensions_from_ttype(
+                    bit_cast->m_type, result_dims);
+                if (result_n_dims >= 1 && result_dims[0].m_length != nullptr) {
+                    ASRUtils::ExprStmtDuplicator duplicator(al);
+                    allocate_dim.m_length = duplicator.duplicate_expr(
+                        result_dims[0].m_length);
+                    allocate_dims.push_back(al, allocate_dim);
+                } else if (result_n_dims != 0) {
                     ASR::ttype_t* source_type = ASRUtils::expr_type(bit_cast->m_source);
                     ASR::ttype_t* mold_type = ASRUtils::expr_type(bit_cast->m_mold);
                     int source_kind = ASRUtils::extract_kind_from_ttype_t(source_type);
