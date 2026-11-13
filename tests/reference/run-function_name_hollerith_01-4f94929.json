@@ -1,0 +1,13 @@
+{
+    "basename": "run-function_name_hollerith_01-4f94929",
+    "cmd": "lfortran --no-color {infile}",
+    "infile": "tests/../integration_tests/function_name_hollerith_01.f90",
+    "infile_hash": "384736ee077204bbe7d10f3cc07a5afa5745f8b4a0fe980f54ceab7c",
+    "outfile": null,
+    "outfile_hash": null,
+    "stdout": "run-function_name_hollerith_01-4f94929.stdout",
+    "stdout_hash": "66a02dbf2489a482a6bacad0c34674b7f315936ad5824c0bf794aaad",
+    "stderr": null,
+    "stderr_hash": null,
+    "returncode": 0
+}
