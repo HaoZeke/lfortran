@@ -7003,6 +7003,25 @@ LFORTRAN_API void _lfortran_complex_pow_64(struct _lfortran_complex_64* a,
 
 }
 
+LFORTRAN_API void _lfortran_complex_pow_80(struct _lfortran_complex_80* a,
+        struct _lfortran_complex_80* b, struct _lfortran_complex_80 *result)
+{
+    long double complex ca = a->re + a->im * I;
+    long double complex cb = b->re + b->im * I;
+    long double complex cr = cpowl(ca, cb);
+    result->re = creall(cr);
+    result->im = cimagl(cr);
+}
+
+LFORTRAN_API void _lfortran_complex_pow_int_80(struct _lfortran_complex_80* a,
+        int64_t n, struct _lfortran_complex_80 *result)
+{
+    long double complex ca = a->re + a->im * I;
+    long double complex cr = cpowl(ca, (long double) n);
+    result->re = creall(cr);
+    result->im = cimagl(cr);
+}
+
 // complex**integer by repeated multiplication (binary exponentiation); a
 // negative exponent gives 1/z**(-n). The compiler folds constants and unrolls
 // constant exponents with the same algorithm, so all give identical results.

@@ -135,6 +135,10 @@ LFORTRAN_API void _lfortran_complex_div_64(struct _lfortran_complex_64* a,
         struct _lfortran_complex_64* b, struct _lfortran_complex_64 *result);
 LFORTRAN_API void _lfortran_complex_pow_64(struct _lfortran_complex_64* a,
         struct _lfortran_complex_64* b, struct _lfortran_complex_64 *result);
+LFORTRAN_API void _lfortran_complex_pow_80(struct _lfortran_complex_80* a,
+        struct _lfortran_complex_80* b, struct _lfortran_complex_80 *result);
+LFORTRAN_API void _lfortran_complex_pow_int_80(struct _lfortran_complex_80* a,
+        int64_t n, struct _lfortran_complex_80 *result);
 LFORTRAN_API void _lfortran_complex_pow_int_32(struct _lfortran_complex_32* a,
         int64_t n, struct _lfortran_complex_32 *result);
 LFORTRAN_API void _lfortran_complex_pow_int_64(struct _lfortran_complex_64* a,
