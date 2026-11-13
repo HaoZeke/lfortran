@@ -369,6 +369,9 @@ private:
     Allocator &al;
 public:
     std::map<uint64_t, std::string> fn_unused;
+    // Public module procedures are link-time symbols under
+    // --separate-compilation even when this file's program does not call them.
+    bool keep_module_procedures = false;
 
     UnusedFunctionsVisitor(Allocator &al) : al{al} { }
 
@@ -396,7 +399,7 @@ public:
         remove_unused_fn(x.m_symtab);
     }
     void visit_Module(const ASR::Module_t &x) {
-        if (!x.m_parent_module) {
+        if (!x.m_parent_module && !keep_module_procedures) {
             remove_unused_fn(x.m_symtab);
         }
     }
@@ -443,6 +446,7 @@ void pass_unused_functions(Allocator &al, ASR::TranslationUnit_t &unit,
     */
             UnusedFunctionsVisitor v(al);
             v.fn_unused = fn_unused;
+            v.keep_module_procedures = pass_options.separate_compilation;
             v.visit_TranslationUnit(unit);
         }
     }
