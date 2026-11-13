@@ -42,6 +42,7 @@
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Target/TargetMachine.h>
 #include <llvm/Transforms/Scalar.h>
+#include <llvm/Transforms/Utils.h>
 #include <llvm/Transforms/Scalar/GVN.h>
 #include <llvm/Transforms/InstCombine/InstCombine.h>
 #include <llvm/Transforms/Scalar/InstSimplifyPass.h>
@@ -1666,6 +1667,10 @@ static void disable_load_pre() {
 // constant such as the -1 of a 1-based subscript stays on the i64 side so
 // it cannot overflow. The intermediate pointer is not inbounds, because
 // that constant can sit one element before the allocation.
+//
+// A reverse subscript such as ic = idp2 - i is widened to i64 before this
+// pass, so it is no longer a sext of an i32 value and is left for loop
+// strength reduction. What remains is the gathered index.
 struct SextAffine {
     llvm::Value* i32;
     int64_t off;
@@ -1749,10 +1754,10 @@ static bool narrow_gather_index(llvm::GetElementPtrInst* gep) {
     llvm::Value* key = nullptr;
     llvm::Value* rest = nullptr;
     int64_t off = 0;
-    SextAffine affine;
-    if (match_sext_affine(idx, affine, 0) != nullptr) {
-        key = affine.i32;
-        off = affine.off;
+    SextAffine matched;
+    if (match_sext_affine(idx, matched, 0) != nullptr) {
+        key = matched.i32;
+        off = matched.off;
     } else if (auto* add = llvm::dyn_cast<llvm::BinaryOperator>(idx)) {
         if (add->getOpcode() == llvm::Instruction::Add) {
             SextAffine side;
@@ -1869,6 +1874,75 @@ static void reassociate_invariant_quotient(llvm::Module& m) {
             if (mul->use_empty()) {
                 mul->eraseFromParent();
             }
+        }
+    }
+}
+
+// sext(sub nsw a, b) is not an induction, so loop strength reduction leaves
+// the sign extension and the address arithmetic in the loop. sub nsw of
+// the widened operands is the same value and is affine in each operand.
+static void widen_nsw_index_arithmetic(llvm::Function& fn) {
+    bool changed = true;
+    while (changed) {
+        changed = false;
+        llvm::SmallVector<llvm::SExtInst*, 8> sexts;
+        for (llvm::BasicBlock& bb : fn) {
+            for (llvm::Instruction& inst : bb) {
+                auto* sext = llvm::dyn_cast<llvm::SExtInst>(&inst);
+                if (sext == nullptr || !sext->getSrcTy()->isIntegerTy(32)
+                        || !sext->getDestTy()->isIntegerTy(64)) {
+                    continue;
+                }
+                auto* bin = llvm::dyn_cast<llvm::BinaryOperator>(sext->getOperand(0));
+                if (bin == nullptr || !bin->hasNoSignedWrap()) {
+                    continue;
+                }
+                unsigned op = bin->getOpcode();
+                if (op != llvm::Instruction::Add && op != llvm::Instruction::Sub
+                        && op != llvm::Instruction::Mul) {
+                    continue;
+                }
+                sexts.push_back(sext);
+            }
+        }
+        for (llvm::SExtInst* sext : sexts) {
+            if (sext->getParent() == nullptr) {
+                continue;
+            }
+            auto* bin = llvm::cast<llvm::BinaryOperator>(sext->getOperand(0));
+            llvm::IRBuilder<> builder(sext);
+            llvm::Type* wide = sext->getType();
+            llvm::Value* left = builder.CreateSExt(bin->getOperand(0), wide);
+            llvm::Value* right = builder.CreateSExt(bin->getOperand(1), wide);
+            llvm::Value* widened = nullptr;
+            if (bin->getOpcode() == llvm::Instruction::Add) {
+                widened = builder.CreateNSWAdd(left, right);
+            } else if (bin->getOpcode() == llvm::Instruction::Sub) {
+                widened = builder.CreateNSWSub(left, right);
+            } else {
+                widened = builder.CreateNSWMul(left, right);
+            }
+            sext->replaceAllUsesWith(widened);
+            sext->eraseFromParent();
+            changed = true;
+        }
+    }
+}
+
+static void prepare_index_arithmetic(llvm::Module& m) {
+    llvm::legacy::FunctionPassManager early(&m);
+    early.add(llvm::createPromoteMemoryToRegisterPass());
+    early.add(llvm::createInstructionCombiningPass());
+    early.doInitialization();
+    for (llvm::Function& fn : m) {
+        if (!fn.empty()) {
+            early.run(fn);
+        }
+    }
+    early.doFinalization();
+    for (llvm::Function& fn : m) {
+        if (!fn.empty()) {
+            widen_nsw_index_arithmetic(fn);
         }
     }
 }
@@ -2224,6 +2298,7 @@ void LLVMEvaluator::opt(llvm::Module &m) {
     configure_module(m);
     disable_load_pre();
     reassociate_invariant_quotient(m);
+    prepare_index_arithmetic(m);
     narrow_gather_indices(m);
 
 #if LLVM_VERSION_MAJOR >= 17
