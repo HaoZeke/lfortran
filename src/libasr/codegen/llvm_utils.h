@@ -1499,7 +1499,11 @@ class ASRToLLVMVisitor;
                 }
                 break;
                 case ASR::StructType:
-                    if(ASRUtils::is_class_type(t_past)){
+                    // A pointer component is not an allocatable. Finalizing
+                    // the derived type that holds it must not free the
+                    // target: the bits may already have been copied out,
+                    // which is how f90wrap keeps a class handle.
+                    if(ASRUtils::is_class_type(t_past) && !in_struct){
                         check_if_allocated_then_finalize(ptr, t, struct_sym, [this, ptr](){
                             llvm_utils_->lfortran_free_nocheck(ptr);
                         });

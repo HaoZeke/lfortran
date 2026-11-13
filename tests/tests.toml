@@ -3274,6 +3274,10 @@ filename = "../integration_tests/loc_01.f90"
 run = true
 
 [[test]]
+filename = "../integration_tests/class_pointer_component_01.f90"
+run = true
+
+[[test]]
 filename = "../integration_tests/size_dim_kind_01.f90"
 run = true
 

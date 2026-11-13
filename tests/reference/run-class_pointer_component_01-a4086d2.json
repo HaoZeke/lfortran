@@ -1,0 +1,13 @@
+{
+    "basename": "run-class_pointer_component_01-a4086d2",
+    "cmd": "lfortran --no-color {infile}",
+    "infile": "tests/../integration_tests/class_pointer_component_01.f90",
+    "infile_hash": "ab32fddcc9eebc850094fb378342ed31662040b8bae763b8238772a5",
+    "outfile": null,
+    "outfile_hash": null,
+    "stdout": "run-class_pointer_component_01-a4086d2.stdout",
+    "stdout_hash": "66a02dbf2489a482a6bacad0c34674b7f315936ad5824c0bf794aaad",
+    "stderr": null,
+    "stderr_hash": null,
+    "returncode": 0
+}
