@@ -1378,8 +1378,23 @@ static void lower_vector_exp_to_libmvec(llvm::Module &m) {
     }
 }
 
+// GVN load PRE turns x(i) into the value loaded as x(i+1) on the previous
+// iteration. That phi is a floating-point recurrence. LLVM 11's loop
+// vectorizer will not vectorize an FP phi unless it is a reduction, so the
+// Rosenbrock gradient stays scalar (vmulsd) while gfortran emits mulpd.
+// The widened loads are worth more than the eliminated scalar load.
+static void disable_load_pre() {
+    llvm::StringMap<llvm::cl::Option*> &options
+        = llvm::cl::getRegisteredOptions();
+    auto option = options.find("enable-load-pre");
+    if (option != options.end() && option->second->getNumOccurrences() == 0) {
+        option->second->addOccurrence(0, "enable-load-pre", "false");
+    }
+}
+
 void LLVMEvaluator::opt(llvm::Module &m) {
     configure_module(m);
+    disable_load_pre();
 
 #if LLVM_VERSION_MAJOR >= 17
     llvm::LoopAnalysisManager LAM;
