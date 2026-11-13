@@ -13983,6 +13983,122 @@ LFORTRAN_API void _lfortran_read_complex_double(struct _lfortran_complex_64 *p, 
     }
 }
 
+static void store_complex80(struct _lfortran_complex_80 *p, int i, int32_t stride,
+        long double re, long double im) {
+    p[(int64_t)i * (int64_t)stride].re = re;
+    p[(int64_t)i * (int64_t)stride].im = im;
+}
+
+LFORTRAN_API void _lfortran_read_array_complex_80(struct _lfortran_complex_80 *p, int array_size, int32_t stride, int32_t unit_num, int32_t *iostat)
+{
+    int dmode = _lfortran_get_decimal_mode(unit_num);
+    if (iostat) *iostat = 0;
+    if (stride == 0) {
+        if (iostat) { *iostat = 1; return; }
+        fprintf(stderr, "Error: Invalid zero stride in complex(10) array read.\n");
+        exit(1);
+    }
+    if (unit_num == -1) {
+        use_stdin_char_mode();
+        for (int i = 0; i < array_size; i++) {
+            char buf_re[100], buf_im[100];
+            if (input_scan(stdin, "%99s %99s", buf_re, buf_im) != 2) {
+                if (iostat) { *iostat = input_eof(stdin) ? -1 : 1; return; }
+                fprintf(stderr, "Error: Failed to read complex(10) from stdin.\n");
+                exit(1);
+            }
+            convert_fortran_d_exponent(buf_re);
+            normalize_numeric_input(buf_re, dmode);
+            convert_fortran_d_exponent(buf_im);
+            normalize_numeric_input(buf_im, dmode);
+            store_complex80(p, i, stride, strtold(buf_re, NULL), strtold(buf_im, NULL));
+        }
+        return;
+    }
+    bool unit_file_bin;
+    int access_id;
+    bool read_access_flag = true;
+    FILE* filep = get_file_pointer_from_unit(unit_num, &unit_file_bin, &access_id, &read_access_flag, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+    if (filep && !read_access_flag) {
+        if (iostat) { *iostat = 5007; return; }
+        fprintf(stderr, "Runtime Error: Read access not permitted for unit %d.\n", unit_num);
+        exit(1);
+    }
+    if (!filep) {
+        if (iostat) { *iostat = 1; return; }
+        printf("No file found with given unit\n");
+        exit(1);
+    }
+    if (unit_file_bin) {
+        for (int i = 0; i < array_size; i++) {
+            struct _lfortran_complex_80 val;
+            if (fread(&val, sizeof(val), 1, filep) != 1) {
+                if (iostat) { *iostat = input_eof(filep) ? -1 : 1; return; }
+                fprintf(stderr, "Error: Failed to read complex(10) from binary file.\n");
+                exit(1);
+            }
+            p[(int64_t)i * (int64_t)stride] = val;
+        }
+        return;
+    }
+    for (int i = 0; i < array_size;) {
+        char buffer[200];
+        int rc = read_complex_expr(filep, buffer, sizeof(buffer));
+        if (rc == -1) {
+            i++;
+            continue;
+        }
+        if (rc == 0) {
+            if (iostat) { *iostat = input_eof(filep) ? -1 : 1; return; }
+            fprintf(stderr, "Error: Invalid input for complex(10) from file.\n");
+            exit(1);
+        }
+        convert_fortran_d_exponent(buffer);
+        normalize_numeric_input(buffer, dmode);
+        long double re = 0, im = 0;
+        int repeat_count = 1;
+        char *value_start = buffer;
+        char *star = strchr(buffer, '*');
+        bool has_repeat_count = star && star > buffer && star[1] == '(';
+        for (char *p_repeat = buffer; has_repeat_count && p_repeat < star; p_repeat++) {
+            has_repeat_count = isdigit((unsigned char)*p_repeat);
+        }
+        if (has_repeat_count) {
+            *star = '\0';
+            repeat_count = atoi(buffer);
+            value_start = star + 1;
+        }
+        char *start = strchr(value_start, '(');
+        char *end = strchr(value_start, ')');
+        if (start && end && end > start) {
+            *end = '\0';
+            start++;
+            char *comma = strchr(start, ',');
+            if (!comma) {
+                if (iostat) { *iostat = 1; return; }
+                fprintf(stderr, "Error: Invalid complex(10) format '%s'.\n", buffer);
+                exit(1);
+            }
+            *comma = '\0';
+            while (isspace((unsigned char)*start)) start++;
+            re = strtold(start, NULL);
+            char *im_start = comma + 1;
+            while (isspace((unsigned char)*im_start)) im_start++;
+            im = strtold(im_start, NULL);
+        } else {
+            re = strtold(buffer, NULL);
+            if (input_scan(filep, "%Lf", &im) != 1) {
+                if (iostat) { *iostat = input_eof(filep) ? -1 : 1; return; }
+                fprintf(stderr, "Error: Failed to read complex(10) from file.\n");
+                exit(1);
+            }
+        }
+        for (int r = 0; r < repeat_count && i < array_size; r++, i++) {
+            store_complex80(p, i, stride, re, im);
+        }
+    }
+}
+
 LFORTRAN_API void _lfortran_read_array_complex_float(struct _lfortran_complex_32 *p, int array_size, int32_t stride, int32_t unit_num, int32_t *iostat)
 {
     int dmode = _lfortran_get_decimal_mode(unit_num);

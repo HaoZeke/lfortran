@@ -22637,6 +22637,9 @@ public:
                     } else if ( a_kind == 8 ) {
                         runtime_func_name = "_lfortran_read_array_complex_double";
                         type_arg = complex_type_8;
+                    } else if ( a_kind == 10 ) {
+                        runtime_func_name = "_lfortran_read_array_complex_80";
+                        type_arg = complex_type_10;
                     } else if ( a_kind == 16 ) {
                         runtime_func_name = "_lfortran_read_array_complex_float128";
                         type_arg = complex_type_16;
