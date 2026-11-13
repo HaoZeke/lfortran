@@ -2120,6 +2120,12 @@ RUN(NAME intrinsics_364 LABELS gfortran llvm llvm_wasm llvm_wasm_emcc fortran) #
 RUN(NAME intrinsics_365 LABELS gfortran llvm llvm_wasm llvm_wasm_emcc fortran) # is_contiguous
 RUN(NAME intrinsics_366 LABELS gfortran llvm llvm_wasm llvm_wasm_emcc fortran) # shiftl, shiftr, trailz, btest, ibclr
 RUN(NAME intrinsics_367 LABELS gfortran llvm) # get_environment_variable
+# run_tests.py exports this before ctest. A direct ctest does not, and
+# the program error-stops when the variable is absent.
+if (TEST intrinsics_367)
+    set_tests_properties(intrinsics_367 PROPERTIES
+        ENVIRONMENT "LFORTRAN_TEST_ENV_VAR=STATUS OK!")
+endif()
 RUN(NAME intrinsics_368 LABELS gfortran llvm llvm_wasm llvm_wasm_emcc) # kind
 RUN(NAME intrinsics_369 LABELS gfortran llvm llvm_wasm llvm_wasm_emcc)
 RUN(NAME intrinsics_370 LABELS gfortran llvm llvm_wasm llvm_wasm_emcc) # findloc
@@ -2134,6 +2140,14 @@ RUN(NAME intrinsics_378 LABELS gfortran llvm llvm_wasm llvm_wasm_emcc) # move_al
 RUN(NAME intrinsics_379 LABELS gfortran llvm llvm_wasm llvm_wasm_emcc) # get_command_argument
 RUN(NAME intrinsics_380 LABELS gfortran llvm) # get_environment_variable
 RUN(NAME intrinsics_381 LABELS gfortran llvm) # get_environment_variable
+if (TEST intrinsics_380)
+    set_tests_properties(intrinsics_380 PROPERTIES
+        ENVIRONMENT "LFORTRAN_TEST_ENV_VAR=STATUS OK!")
+endif()
+if (TEST intrinsics_381)
+    set_tests_properties(intrinsics_381 PROPERTIES
+        ENVIRONMENT "LFORTRAN_TEST_ENV_VAR=STATUS OK!")
+endif()
 RUN(NAME intrinsics_382 LABELS gfortran llvm llvm_wasm llvm_wasm_emcc) # pack
 RUN(NAME intrinsics_383 LABELS gfortran llvm llvm_wasm llvm_wasm_emcc) # pack
 RUN(NAME intrinsics_384 LABELS gfortran llvm fortran) # eoshift
