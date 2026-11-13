@@ -732,6 +732,13 @@ namespace X {                                                                   
                 ASRUtils::real_constant_get_r16(                                \
                     ASR::down_cast<ASR::RealConstant_t>(args[0]))), t);         \
         }                                                                       \
+        if( ASR::is_a<ASR::RealConstant_t>(*args[0]) &&                         \
+                ASRUtils::extract_kind_from_ttype_t(t) == 10 ) {                \
+            long double lv = ASRUtils::real_constant_get_r10(                   \
+                ASR::down_cast<ASR::RealConstant_t>(args[0]));                  \
+            return ASRUtils::make_RealConstant_r10(al, loc,                     \
+                std::stdeval(lv), t);                                           \
+        }                                                                       \
         double rv = -1;                                                         \
         if( ASRUtils::extract_value(args[0], rv) ) {                            \
             double val = std::stdeval(rv);                                      \
