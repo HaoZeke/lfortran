@@ -2345,6 +2345,11 @@ void LLVMEvaluator::opt(llvm::Module &m) {
     llvm::PipelineTuningOptions PTO;
     PTO.LoopVectorization = true;
     PTO.SLPVectorization = true;
+    // Interleave is the vectorizer's own unroll. The default of 4 makes
+    // a 4-wide body wait for 16 iterations, so a short runtime trip stays
+    // scalar. One vector per iteration still vectorizes. Unrolling is a
+    // separate pass and stays on.
+    PTO.LoopInterleaving = false;
     llvm::PassBuilder PB = llvm::PassBuilder(TM.get(), PTO);
     PB.registerModuleAnalyses(MAM);
     PB.registerCGSCCAnalyses(CGAM);
@@ -2379,6 +2384,10 @@ void LLVMEvaluator::opt(llvm::Module &m) {
     builder.DisableUnrollLoops = false;
     builder.LoopVectorize = true;
     builder.SLPVectorize = true;
+    // createLoopVectorizePass(!LoopsInterleaved, ...) uses an interleave
+    // count of 1 when this is false. The default count is 4 on x86, so
+    // the vector body is skipped below 16 iterations.
+    builder.LoopsInterleaved = false;
     builder.populateFunctionPassManager(fpm);
     builder.populateModulePassManager(mpm);
     fpm.doInitialization();

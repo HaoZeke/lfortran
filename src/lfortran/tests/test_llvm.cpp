@@ -1719,6 +1719,70 @@ end module
         }, false, true);
 }
 
+TEST_CASE("LLVM --fast vectorizes with interleave count one") {
+    // The vectorizer's interleave count is its own unroll factor. A count
+    // of 4 makes a 4-wide body wait for 16 iterations, so a short loop
+    // stays scalar. Haswell doubles are 4 wide; one vector per iteration
+    // is one vector multiply in the vector body.
+    std::string source = R"(subroutine axpy_n(n, a, x, y)
+integer, intent(in) :: n
+real(8), intent(in) :: a, x(n)
+real(8), intent(inout) :: y(n)
+integer :: i
+do i = 1, n
+    y(i) = a*x(i) + y(i)
+end do
+end subroutine
+)";
+    Allocator al(64*1024);
+    LCompilers::diag::Diagnostics diagnostics;
+    CompilerOptions co;
+    co.po.runtime_library_dir = LFORTRAN_BUILD_RUNTIME_DIR;
+    co.platform = LCompilers::get_platform();
+    co.po.fast = true;
+    co.po.bounds_checking = false;
+    co.po.strict_bounds_checking = false;
+    co.mcpu = "haswell";
+    LCompilers::LLVMEvaluator e(co);
+    LCompilers::LFortran::AST::TranslationUnit_t* tu = TRY(
+        LCompilers::LFortran::parse(al, source, diagnostics, co));
+    LCompilers::LocationManager lm;
+    LCompilers::LocationManager::FileLocations file;
+    file.in_filename = "axpy_n.f90";
+    lm.files.push_back(file);
+    lm.file_ends.push_back(LCompilers::LFortran::source_offset(source.size()));
+    LCompilers::ASR::TranslationUnit_t* asr = TRY(
+        LCompilers::LFortran::ast_to_asr(al, *tu, diagnostics, nullptr, false,
+            co, lm));
+    LCompilers::PassManager lpm;
+    lpm.use_default_passes();
+    LCompilers::Result<std::unique_ptr<LCompilers::LLVMModule>> res
+        = LCompilers::asr_to_llvm(*asr, diagnostics, e.get_context(),
+            e.get_target_config(), al, lpm, co, "", "", "", lm);
+    INFO(diagnostics.render2());
+    REQUIRE(res.ok);
+    e.opt(*res.result->m_m);
+    llvm::Function *fn = nullptr;
+    for (llvm::Function &f : *res.result->m_m) {
+        if (!f.isDeclaration() && f.getName() == "axpy_n") fn = &f;
+    }
+    REQUIRE(fn != nullptr);
+    size_t widest = 0;
+    for (llvm::BasicBlock &block : *fn) {
+        std::string bname = block.getName().str();
+        if (bname.compare(0, 11, "vector.body") != 0) continue;
+        size_t multiplies = 0;
+        for (llvm::Instruction &inst : block) {
+            if (inst.getOpcode() == llvm::Instruction::FMul
+                    && inst.getType()->isVectorTy()) {
+                multiplies++;
+            }
+        }
+        widest = std::max(widest, multiplies);
+    }
+    CHECK(widest == 1);
+}
+
 TEST_CASE("LLVM TBAA metadata under --fast") {
     std::string source = R"(module tbaa_ir_m
 implicit none
