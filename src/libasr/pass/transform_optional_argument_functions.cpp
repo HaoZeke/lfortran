@@ -846,6 +846,31 @@ bool fill_new_args(Vec<ASR::call_arg_t>& new_args, Allocator& al,
     return true;
 }
 
+// True when `name` is a procedure that still has an optional argument.
+// Those calls used to be rebuilt so a presence argument could be inserted,
+// and that rebuild is also what casts an array actual to the dummy's
+// physical type. Presence arguments are no longer inserted, but the cast
+// still has to be.
+static bool function_has_optional_argument(ASR::symbol_t *name) {
+    ASR::symbol_t *sym = ASRUtils::symbol_get_past_external(name);
+    if (sym == nullptr || !ASR::is_a<ASR::Function_t>(*sym)) {
+        return false;
+    }
+    ASR::Function_t *fn = ASR::down_cast<ASR::Function_t>(sym);
+    for (size_t i = 0; i < fn->n_args; i++) {
+        if (!ASR::is_a<ASR::Var_t>(*fn->m_args[i])) {
+            continue;
+        }
+        ASR::symbol_t *arg = ASR::down_cast<ASR::Var_t>(fn->m_args[i])->m_v;
+        if (ASR::is_a<ASR::Variable_t>(*arg) &&
+                ASR::down_cast<ASR::Variable_t>(arg)->m_presence ==
+                    ASR::presenceType::Optional) {
+            return true;
+        }
+    }
+    return false;
+}
+
 class ReplaceFunctionCallsWithOptionalArguments: public ASR::BaseExprReplacer<ReplaceFunctionCallsWithOptionalArguments> {
 
     private:
@@ -868,6 +893,14 @@ class ReplaceFunctionCallsWithOptionalArguments: public ASR::BaseExprReplacer<Re
         Vec<ASR::call_arg_t> new_args;
         if( !fill_new_args(new_args, al, *x, current_scope, sym2optionalargidx, pass_result) ||
             new_func_calls.find(*current_expr) != new_func_calls.end() ) {
+            if (new_func_calls.find(*current_expr) == new_func_calls.end() &&
+                    function_has_optional_argument(x->m_name)) {
+                *current_expr = ASRUtils::EXPR(ASRUtils::make_FunctionCall_t_util(al,
+                                    x->base.base.loc, x->m_name, x->m_original_name,
+                                    x->m_args, x->n_args, x->m_type, x->m_value,
+                                    x->m_dt));
+                new_func_calls.insert(*current_expr);
+            }
             return ;
         }
         *current_expr = ASRUtils::EXPR(ASRUtils::make_FunctionCall_t_util(al,
@@ -994,6 +1027,13 @@ class ReplaceSubroutineCallsWithOptionalArgumentsVisitor : public PassUtils::Pas
         void visit_SubroutineCall(const ASR::SubroutineCall_t& x) {
             Vec<ASR::call_arg_t> new_args;
             if( !fill_new_args(new_args, al, x, current_scope, sym2optionalargidx, pass_result) ) {
+                if (!function_has_optional_argument(x.m_name)) {
+                    return ;
+                }
+                pass_result.push_back(al, ASRUtils::STMT(ASRUtils::make_SubroutineCall_t_util(al,
+                                        x.base.base.loc, x.m_name, x.m_original_name,
+                                        x.m_args, x.n_args, x.m_dt,
+                                        nullptr, false)));
                 return ;
             }
             pass_result.push_back(al, ASRUtils::STMT(ASRUtils::make_SubroutineCall_t_util(al,
