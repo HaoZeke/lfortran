@@ -1,0 +1,13 @@
+{
+    "basename": "run-loc_allocatable_01-e69931e",
+    "cmd": "lfortran --no-color {infile}",
+    "infile": "tests/../integration_tests/loc_allocatable_01.f90",
+    "infile_hash": "e9e582b248c802e9e1aa71ac4bd8c58324ca1519e5a9f83aad5cb7cb",
+    "outfile": null,
+    "outfile_hash": null,
+    "stdout": "run-loc_allocatable_01-e69931e.stdout",
+    "stdout_hash": "6fbf54c6acaf0896639ec5274fd6adc9fbf31e1202d535f3fb317411",
+    "stderr": null,
+    "stderr_hash": null,
+    "returncode": 0
+}
