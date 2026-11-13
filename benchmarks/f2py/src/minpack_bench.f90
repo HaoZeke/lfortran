@@ -96,7 +96,7 @@ subroutine bench_hybrd(nrep, info, nfev_out, xmax)
   integer, parameter :: n = 4
   integer, parameter :: lwa = (n * (3 * n + 13)) / 2
   integer :: rep, nfev, i
-  double precision :: x(n), fvec(n), wa(lwa), tol, ax, xsum
+  double precision :: x(n), fvec(n), wa(lwa), tol, ax
   common /hybrdd/ nfev
   external powell_fcn
   interface
@@ -110,8 +110,7 @@ subroutine bench_hybrd(nrep, info, nfev_out, xmax)
   tol = 1.0d-10
   info = 0
   nfev_out = 0
-  xmax = -1.0d0
-  xsum = 0.0d0
+  xmax = 0.0d0
   do rep = 1, nrep
     x(1) = 3.0d0
     x(2) = -1.0d0
@@ -119,11 +118,9 @@ subroutine bench_hybrd(nrep, info, nfev_out, xmax)
     x(4) = 1.0d0
     nfev = 0
     call hybrd1(powell_fcn, n, x, fvec, tol, info, wa, lwa)
-    xsum = xsum + x(1) + x(2) + x(3) + x(4)
+    nfev_out = nfev_out + nfev
     if (info /= 1 .and. info /= 4) exit
   end do
-  nfev_out = nfev
-  xmax = abs(xsum)
   do i = 1, n
     ax = abs(x(i))
     if (ax > xmax) xmax = ax

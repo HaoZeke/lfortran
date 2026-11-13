@@ -311,6 +311,18 @@ def summarize(samples: list[float]) -> dict:
     }
 
 
+def _note_nfev(note: str) -> int | None:
+    """Pull nfev=N out of a check note. 0 means the timed call did no work."""
+    for part in note.replace(",", " ").split():
+        if part.startswith("nfev="):
+            try:
+                nfev = int(part.split("=", 1)[1])
+            except ValueError:
+                return None
+            return nfev or None
+    return None
+
+
 def time_call(fn) -> dict:
     for _ in range(WARMUP):
         fn()
@@ -402,7 +414,11 @@ def make_cases(module):
         return f"ier={ier} max_abs_err={err:.3e}"
 
     lm = 8000
-    x0 = np.array([1.0, 1.0, 1.0, 1.0], dtype=np.float64)
+    # (1, 1, 1, 1) makes gfortran -O3 -march=native stop with info 1 and a
+    # residual of 6.5. (1.5, 1, 1, 2) reaches the generating parameters
+    # (2, 0.5, 0.5, 3) with info 2 on every build tried here.
+    x0 = np.array([1.5, 1.0, 1.0, 2.0], dtype=np.float64)
+    x_true = np.array([2.0, 0.5, 0.5, 3.0], dtype=np.float64)
 
     def lmdif():
         xfit = np.array(x0, copy=True)
@@ -411,11 +427,13 @@ def make_cases(module):
 
     def check_lmdif():
         info, nfev, ssq, xfit = lmdif()
-        # info 1..4 are the normal MINPACK stops. -ffast-math can stop at a
-        # large residual (info 1) because the predicted reduction collapses.
-        if info not in (1, 2, 3, 4):
-            raise AssertionError(f"lmdif info={info} nfev={nfev} ssq={ssq} x={xfit}")
-        return f"info={info} nfev={nfev} ssq={ssq:.3e}"
+        xerr = float(np.max(np.abs(xfit - x_true)))
+        # info 2 is the xtol stop at a real iterate. info 1 can fire while
+        # the residual is still O(1), which is not the fit of the data.
+        if info != 2 or ssq > 1e-12 or xerr > 1e-6:
+            raise AssertionError(
+                f"lmdif info={info} nfev={nfev} ssq={ssq} xerr={xerr} x={xfit}")
+        return f"info={info} nfev={nfev} ssq={ssq:.3e} xerr={xerr:.3e}"
 
     nrep_h = 2000
 
@@ -425,9 +443,9 @@ def make_cases(module):
 
     def check_hybrd():
         info, nfev, xmax = hybrd()
-        # Powell's singular function, started at (3, -1, 0, 1). The Jacobian
-        # is singular at the origin, so hybrd1 stops with info 4 once x is
-        # already there. gfortran -O2 does the same.
+        # Powell's singular function, root at the origin. info 1 is the
+        # tolerance stop and info 4 is the singular-Jacobian stop, both only
+        # after x is already there. Any other info is an early exit.
         if info not in (1, 4) or xmax > 1e-8:
             raise AssertionError(f"hybrd info={info} nfev={nfev} xmax={xmax}")
         return f"info={info} nfev={nfev} xmax={xmax:.3e}"
@@ -763,8 +781,14 @@ def main() -> None:
                 slot.update(stats)
                 slot["check"] = notes[name]
                 slot["error"] = None
+                per_nfev = ""
+                nfev = _note_nfev(notes[name])
+                if nfev:
+                    sec = stats["median_s"] / nfev
+                    slot["sec_per_nfev"] = sec
+                    per_nfev = f"  {sec * 1e6:.2f}us/nfev"
                 print(
-                    f"  {name} median {stats['median_s']:.6f}s  "
+                    f"  {name} median {stats['median_s']:.6f}s{per_nfev}  "
                     f"iqr {stats['iqr_s']:.6f}s  {notes[name]}",
                     flush=True)
 
