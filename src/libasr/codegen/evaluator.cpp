@@ -1373,7 +1373,41 @@ static void sink_call_to_its_users(llvm::Module &m, const char *name) {
                 break;
             }
         }
-        if (first != nullptr) {
+        if (first != nullptr && llvm::isa<llvm::PHINode>(first)) {
+            // A phi incoming is defined in the predecessor, not in the
+            // join block. Moving the call in front of the phi puts a
+            // non-phi before the phi and the module no longer verifies.
+            // COBYLA's sequence association hits this after GVN.
+            auto *phi = llvm::cast<llvm::PHINode>(first);
+            llvm::BasicBlock *pred = nullptr;
+            bool unique = true;
+            for (unsigned i = 0; i < phi->getNumIncomingValues(); i++) {
+                if (phi->getIncomingValue(i) != call) {
+                    continue;
+                }
+                llvm::BasicBlock *inc = phi->getIncomingBlock(i);
+                if (pred != nullptr && pred != inc) {
+                    unique = false;
+                }
+                pred = inc;
+            }
+            bool others_ok = unique && pred != nullptr;
+            if (others_ok) {
+                for (llvm::User *user : call->users()) {
+                    auto *inst = llvm::cast<llvm::Instruction>(user);
+                    if (llvm::isa<llvm::PHINode>(inst)) {
+                        continue;
+                    }
+                    if (!tree.dominates(pred, inst->getParent())) {
+                        others_ok = false;
+                        break;
+                    }
+                }
+            }
+            if (others_ok && pred->getTerminator() != nullptr) {
+                call->moveBefore(pred->getTerminator());
+            }
+        } else if (first != nullptr) {
             call->moveBefore(first);
         } else if (llvm::Instruction *term = home->getTerminator()) {
             call->moveBefore(term);

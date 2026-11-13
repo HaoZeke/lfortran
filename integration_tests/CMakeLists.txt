@@ -8016,6 +8016,8 @@ RUN(NAME givens_rota_01 LABELS gfortran llvm EXTRA_ARGS --fast)
 RUN(NAME scale_factor_01 LABELS gfortran llvm EXTRA_ARGS --fast)
 # Reverse subscript ic = idp2 - i. The sums stay in source order.
 RUN(NAME rev_index_01 LABELS gfortran llvm EXTRA_ARGS --fast --no-fast-math)
+# Sequence association of an array element, joined across a branch.
+RUN(NAME seq_assoc_phi_01 LABELS gfortran llvm EXTRA_ARGS --fast --no-fast-math --implicit-interface --legacy-array-sections)
 # r1mpyq's two Givens tests. --fast --no-fast-math must keep both results.
 RUN(NAME givens_select_01 LABELS gfortran llvm EXTRA_ARGS --fast --no-fast-math)
 # sin(p*i)*cos(p*j). Strict math must keep libm values and p-order sums.
