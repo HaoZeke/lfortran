@@ -287,6 +287,10 @@ static inline std::string real_c_func_name(const std::string &name,
         return "_lfortran_s" + name;
     }
     // x87 extended precision uses the C long double libm entry (log10l, ...).
+    // log_gamma is lgamma in libm, so the long double entry is `lgammal`.
+    if (kind == 10 && name == "log_gamma") {
+        return "lgammal";
+    }
     if (kind == 10) {
         return name + "l";
     }
@@ -560,6 +564,9 @@ namespace X {                                                                   
                     ASR::down_cast<ASR::RealConstant_t>(args[0]))), t);         \
         }                                                                       \
         if (kind == 16) {                                                       \
+            return nullptr;                                                     \
+        }                                                                       \
+        if (kind == 10 && std::string(#X) == "LogGamma") {                      \
             return nullptr;                                                     \
         }                                                                       \
         double rv = ASR::down_cast<ASR::RealConstant_t>(args[0])->m_r;          \

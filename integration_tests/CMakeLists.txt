@@ -7968,6 +7968,7 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR MATCHES "x86_6
     RUN(NAME real80_cmplx_exp_01 LABELS gfortran llvm)
     RUN(NAME real80_cmplx_pow_01 LABELS gfortran llvm)
     RUN(NAME real80_read_array_01 LABELS gfortran llvm)
+    RUN(NAME real80_log_gamma_01 LABELS gfortran llvm)
     RUN(NAME real80_implied_do_01 LABELS gfortran llvm)
     RUN(NAME real_complex10_01 LABELS gfortran llvm)
     # The value check waits on #17031.
