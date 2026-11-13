@@ -6016,6 +6016,8 @@ RUN(NAME integer_kind_16_literal LABELS gfortran llvm)
 
 RUN(NAME integer_kind_16_pow LABELS gfortran llvm)
 
+RUN(NAME integer_pow_negative LABELS gfortran llvm)
+
 RUN(NAME integer_kind_16_read LABELS gfortran llvm)
 
 RUN(NAME integer_kind_16_boz_nml LABELS gfortran llvm)
