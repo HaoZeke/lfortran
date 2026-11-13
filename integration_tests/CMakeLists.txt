@@ -7993,6 +7993,9 @@ RUN(NAME char_task_01 LABELS gfortran llvm)
 # Gradient of the Rosenbrock function. --fast must widen it; the values are
 # the scalar formula at x(i) = 0.1*i - 0.7.
 RUN(NAME rosen_grad_01 LABELS gfortran llvm EXTRA_ARGS --fast)
+# ijk product with the contiguous index moved innermost. --no-fast-math keeps
+# each output element's sum in k order.
+RUN(NAME matmul_inner_01 LABELS gfortran llvm EXTRA_ARGS --fast --no-fast-math)
 # Strided inner product. --fast must keep the sum, including when the
 # strided operand is not gathered.
 RUN(NAME matmul_strided_01 LABELS gfortran llvm EXTRA_ARGS --fast)

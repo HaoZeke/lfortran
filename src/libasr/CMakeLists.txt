@@ -79,6 +79,7 @@ set(SRC
     pass/unused_functions.cpp
     pass/flip_sign.cpp
     pass/div_to_mul.cpp
+    pass/matmul_interchange.cpp
     pass/replace_symbolic.cpp
     pass/intrinsic_function.cpp
     pass/intrinsic_subroutine.cpp
