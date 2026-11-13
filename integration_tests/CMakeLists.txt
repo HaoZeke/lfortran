@@ -5598,7 +5598,6 @@ RUN(NAME character_string_array_01 LABELS gfortran llvm)
 RUN(NAME character_array_output_01 LABELS gfortran llvm)
 RUN(NAME character_array_transfer_01 LABELS gfortran llvm)
 RUN(NAME optional_kinds_01 LABELS gfortran llvm)
-RUN(NAME legacy_fixed_form_01 LABELS gfortran llvm)
 RUN(NAME fixed_form_flag_01 LABELS gfortran llvm
     EXTRA_ARGS -ffixed-form GFORTRAN_ARGS -ffixed-form)
 RUN(NAME openmp_cond_01 LABELS gfortran llvm
@@ -5608,6 +5607,13 @@ RUN(NAME character_function_abi_01 LABELS gfortran llvm
     EXTRA_ARGS --mangle-underscore-external)
 RUN(NAME external_underscore_default_01 LABELS gfortran llvm
     EXTRAFILES external_underscore_default_01.c)
+
+# The RUN() macro always compiles NAME.f90. This one is a .f file, so
+# the driver selects fixed form and implicit typing from the extension.
+if (LFORTRAN_BACKEND STREQUAL "llvm")
+    add_executable(legacy_fixed_form_01 legacy_fixed_form_01.f)
+    add_test(NAME legacy_fixed_form_01 COMMAND legacy_fixed_form_01)
+endif()
 RUN(NAME dimensions_decl_order_01 LABELS gfortran llvm
     EXTRA_ARGS --implicit-typing) # a dummy may bound an array before it is declared, also under implicit none
 
