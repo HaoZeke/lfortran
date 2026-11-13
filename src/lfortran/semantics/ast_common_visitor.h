@@ -57,6 +57,24 @@ static inline int substring_bound_kind(int default_kind,
     return kind;
 }
 
+// A cast of a constant index stays a constant. The code generator requires a
+// substring step of the constant 1, and a cast of that 1 is not a constant.
+static inline ASR::expr_t* cast_substring_index(Allocator &al,
+        const Location &loc, ASR::expr_t *expr, ASR::ttype_t *dest) {
+    if (expr == nullptr) return nullptr;
+    if (ASR::is_a<ASR::IntegerConstant_t>(*expr)) {
+        ASR::ttype_t *src = ASRUtils::expr_type(expr);
+        if (src != nullptr && ASRUtils::is_integer(*src)
+                && ASRUtils::extract_kind_from_ttype_t(src)
+                    == ASRUtils::extract_kind_from_ttype_t(dest)) {
+            return expr;
+        }
+        int64_t n = ASR::down_cast<ASR::IntegerConstant_t>(expr)->m_n;
+        return ASRUtils::EXPR(ASR::make_IntegerConstant_t(al, loc, n, dest));
+    }
+    return CastingUtil::perform_casting(expr, dest, al, loc);
+}
+
 // Sets `abi_type` and `bindc_name` from the language-binding-spec of `x`;
 // `visitor` evaluates the NAME= constant expression.
 template <typename T, typename Visitor>
@@ -17552,7 +17570,7 @@ public:
                                 int_type,
                                 ASRUtils::get_string_type(root_v_type)->m_len));
                 }
-                step = CastingUtil::perform_casting(step, int_type, al, loc);
+                step = cast_substring_index(al, loc, step, int_type);
 
                 ASR::ttype_t *string_tt;
                 {
@@ -17638,7 +17656,8 @@ public:
                             int_type,
                             ASRUtils::get_string_type(v_type)->m_len));
                     }
-                    ASR::expr_t* casted_step = CastingUtil::perform_casting(args[0].m_step, int_type, al, loc);
+                    ASR::expr_t* casted_step = cast_substring_index(
+                        al, loc, args[0].m_step, int_type);
                     ASR::ttype_t *char_type = nullptr;
                     if (arr_ref_val) {
                         char_type = ASRUtils::expr_type(arr_ref_val);
@@ -17762,8 +17781,7 @@ public:
                         sub_int_type,
                         ASRUtils::get_string_type(root_v_type)->m_len));
                 }
-                step = CastingUtil::perform_casting(
-                    step, sub_int_type, al, loc);
+                step = cast_substring_index(al, loc, step, sub_int_type);
 
                 // Create substring type: String(r - l + 1)
                 ASR::ttype_t *string_tt;
@@ -29032,7 +29050,7 @@ public:
             r = CastingUtil::perform_casting(r, int_type, al, loc);
         }
         if (step != nullptr) {
-            step = CastingUtil::perform_casting(step, int_type, al, loc);
+            step = cast_substring_index(al, loc, step, int_type);
         }
 
         if (is_item) {
