@@ -5609,6 +5609,7 @@ RUN(NAME entry_31 LABELS llvm flang) # not gfortran: GFortran 16.2 miscompiles t
 RUN(NAME allocatable_statement_01 LABELS gfortran llvm) # ALLOCATABLE statement after a deferred-shape declaration
 RUN(NAME entry_32 LABELS gfortran llvm) # each ENTRY returns its own value
 RUN(NAME entry_33 LABELS gfortran llvm EXTRA_ARGS --implicit-typing) # undeclared ENTRY results follow the implicit rules
+RUN(NAME entry_34 LABELS gfortran llvm EXTRA_ARGS --implicit-interface) # assumed-size ENTRY dummy is a pointer
 RUN(NAME optional_character_01 LABELS gfortran llvm)
 RUN(NAME allocatable_character_array_01 LABELS gfortran llvm
     EXTRAFILES allocatable_character_array_01_m.f90
