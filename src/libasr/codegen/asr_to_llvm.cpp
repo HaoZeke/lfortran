@@ -4809,7 +4809,11 @@ public:
                 ptr_loads = ptr_loads_copy;
                 ASR::ttype_t* arg_type = ASRUtils::get_contained_type(
                     ASRUtils::expr_type(x.m_args[0]));
-                if (ASRUtils::is_array(arg_type)) {
+                // A descriptor's address is not the address of its first
+                // element. A fixed-size array already is.
+                if (ASRUtils::is_array(arg_type) &&
+                        ASRUtils::extract_physical_type(arg_type) ==
+                            ASR::array_physical_typeType::DescriptorArray) {
                     llvm::Type* elem_type = llvm_utils->get_type_from_ttype_t_util(
                         ASRUtils::get_contained_type(arg_type), nullptr, module.get());
                     tmp = llvm_utils->CreateLoad2(elem_type->getPointerTo(),
