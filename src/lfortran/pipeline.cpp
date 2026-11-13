@@ -63,14 +63,15 @@ ASRObjectResult compile_asr_to_object(
     }
     if (compiler_options.emit_debug_info) {
 #ifndef HAVE_RUNTIME_STACKTRACE
+        // -g is DWARF. The stacktrace runtime is a separate feature: it
+        // turns those line tables into a traceback. Without it, still emit
+        // the debug info and skip only that hookup. A hard error here
+        // rejects every f2py build that forwards -g.
         diagnostics.add(diag::Diagnostic(
-            "The `runtime stacktrace` is not enabled. To get the stack traces "
-            "or debugging information, please re-build LFortran with "
-            "`-DWITH_RUNTIME_STACKTRACE=yes`",
-            diag::Level::Error, diag::Stage::Semantic, {}));
-        result.phase = ASRPipelinePhase::InitialVerify;
-        result.status = 1;
-        return result;
+            "The `runtime stacktrace` is not enabled, so -g will not print a "
+            "traceback. Debug information is still emitted. Re-build LFortran "
+            "with `-DWITH_RUNTIME_STACKTRACE=yes` for stack traces",
+            diag::Level::Warning, diag::Stage::Semantic, {}));
 #endif
     }
 

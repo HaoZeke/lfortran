@@ -20556,11 +20556,13 @@ public:
         this->visit_expr_wrapper(x.m_test, true);
         llvm_utils->create_if_else(tmp, []() {}, [=]() {
             if (compiler_options.emit_debug_info) {
+#ifdef HAVE_RUNTIME_STACKTRACE
                 llvm::Value *fmt_ptr = LCompilers::create_global_string_ptr(context, *module, *builder, infile);
                 llvm::Value *fmt_ptr1 = llvm::ConstantInt::get(context, llvm::APInt(
                     1, compiler_options.use_colors));
                 call_print_stacktrace_addresses(context, *module, *builder,
                     {fmt_ptr, fmt_ptr1});
+#endif
             }
             if (x.m_msg) {
                 std::vector<std::string> fmt;
@@ -27077,6 +27079,7 @@ public:
             stop_code_value = tmp; tmp = nullptr;
         }
         if (compiler_options.emit_debug_info && stop_code_value) {
+#ifdef HAVE_RUNTIME_STACKTRACE
             llvm::Value *fmt_ptr = LCompilers::create_global_string_ptr(context, *module, *builder, infile);
             llvm::Value *fmt_ptr1 = llvm::ConstantInt::get(context, llvm::APInt(
                 1, compiler_options.use_colors));
@@ -27085,6 +27088,7 @@ public:
                 call_print_stacktrace_addresses(context, *module, *builder,
                     {fmt_ptr, fmt_ptr1});
             }, [](){});
+#endif
         }
 
         int exit_code_int = 0;
@@ -27096,11 +27100,13 @@ public:
     void visit_ErrorStop(const ASR::ErrorStop_t &x) {
         if (compiler_options.emit_debug_info) {
             debug_emit_loc(x);
+#ifdef HAVE_RUNTIME_STACKTRACE
             llvm::Value *fmt_ptr = LCompilers::create_global_string_ptr(context, *module, *builder, infile);
             llvm::Value *fmt_ptr1 = llvm::ConstantInt::get(context, llvm::APInt(
                 1, compiler_options.use_colors));
             call_print_stacktrace_addresses(context, *module, *builder,
                 {fmt_ptr, fmt_ptr1});
+#endif
         }
 
         int exit_code_int = 1;
