@@ -7973,6 +7973,7 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR MATCHES "x86_6
     RUN(NAME cmplx_array_second_01 LABELS gfortran llvm)
     RUN(NAME implied_shape_pack_01 LABELS gfortran llvm)
     RUN(NAME reshape_cmplx16_01 LABELS gfortran llvm)
+    RUN(NAME reshape_cmplx10_01 LABELS gfortran llvm)
     RUN(NAME array_ctor_real16_01 LABELS gfortran llvm)
     RUN(NAME real80_implied_do_01 LABELS gfortran llvm)
     RUN(NAME real_complex10_01 LABELS gfortran llvm)

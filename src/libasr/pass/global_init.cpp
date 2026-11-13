@@ -265,8 +265,13 @@ class GlobalInitVisitor {
             if (ASR::is_a<ASR::ArrayReshape_t>(*init)) {
                 ASR::expr_t *value = v.m_value ? v.m_value
                     : ASRUtils::expr_value(init);
-                bool constant = value && (ASR::is_a<ASR::ArrayConstant_t>(*value)
-                    || ASR::is_a<ASR::ArrayConstructor_t>(*value));
+                // A constructor is static only after it is packed into an
+                // array constant. `complex(10)` stays a constructor, and
+                // emitting that allocates stack memory.
+                if (value && ASR::is_a<ASR::ArrayConstructor_t>(*value)) {
+                    value = ASR::down_cast<ASR::ArrayConstructor_t>(value)->m_value;
+                }
+                bool constant = value && ASR::is_a<ASR::ArrayConstant_t>(*value);
                 return !constant;
             }
             // An array constructor of `real(10)`, `real(16)` or the matching

@@ -21742,7 +21742,15 @@ public:
             }
             Vec<ASR::expr_t*> elems; elems.reserve(al, 1);
             int64_t target_size = ASRUtils::get_fixed_size_of_array(reshape_ttype);
-            if (constant_array_elements(ctor_src, elems) && target_size > 0
+            // An array constructor is rank 1. Using one as the value of a
+            // higher-rank reshape makes the result look one-dimensional,
+            // so a (2, 2) result is checked as size 4. Leave that value
+            // unset and reshape at run time.
+            ASR::dimension_t* result_dims = nullptr;
+            size_t result_rank = ASRUtils::extract_dimensions_from_ttype(
+                reshape_ttype, result_dims);
+            if (result_rank == 1 && constant_array_elements(ctor_src, elems)
+                    && target_size > 0
                     && (int64_t) elems.size() >= target_size) {
                 Vec<ASR::expr_t*> kept; kept.reserve(al, target_size);
                 for (int64_t i = 0; i < target_size; i++) {
