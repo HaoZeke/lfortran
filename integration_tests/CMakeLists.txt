@@ -5598,6 +5598,11 @@ RUN(NAME character_string_array_01 LABELS gfortran llvm)
 RUN(NAME character_array_output_01 LABELS gfortran llvm)
 RUN(NAME character_array_transfer_01 LABELS gfortran llvm)
 RUN(NAME optional_kinds_01 LABELS gfortran llvm)
+RUN(NAME legacy_fixed_form_01 LABELS gfortran llvm)
+RUN(NAME fixed_form_flag_01 LABELS gfortran llvm
+    EXTRA_ARGS -ffixed-form GFORTRAN_ARGS -ffixed-form)
+RUN(NAME openmp_cond_01 LABELS gfortran llvm
+    EXTRA_ARGS -fopenmp GFORTRAN_ARGS -fopenmp)
 RUN(NAME dimensions_decl_order_01 LABELS gfortran llvm
     EXTRA_ARGS --implicit-typing) # a dummy may bound an array before it is declared, also under implicit none
 

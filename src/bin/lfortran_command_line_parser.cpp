@@ -599,6 +599,13 @@ namespace LCompilers::CommandLineInterface {
                 compiler_options.po.default_integer_kind = 8;
                 compiler_options.descriptor_index_64 = true;
                 compiler_options.po.descriptor_index_64 = true;
+            } else if (f_flag == "fixed-form") {
+                // GFortran spells the fixed-form switch `-ffixed-form`.
+                compiler_options.fixed_form = true;
+            } else if (f_flag == "openmp") {
+                // GFortran spells the OpenMP switch `-fopenmp`.
+                compiler_options.openmp = true;
+                compiler_options.po.openmp = true;
             } else {
                 throw lc::LCompilersException(
                     "The flag `-f" + f_flag + "` is not supported"
@@ -634,7 +641,11 @@ namespace LCompilers::CommandLineInterface {
         if (opts.arg_files.size() > 0) {
             auto is_fortran_source = [](const std::string &file) {
                 return endswith(file, ".f90") || endswith(file, ".f") ||
-                    endswith(file, ".F90") || endswith(file, ".F");
+                    endswith(file, ".F90") || endswith(file, ".F") ||
+                    endswith(file, ".f95") || endswith(file, ".F95") ||
+                    endswith(file, ".f03") || endswith(file, ".F03") ||
+                    endswith(file, ".f08") || endswith(file, ".F08") ||
+                    endswith(file, ".for") || endswith(file, ".FOR");
             };
             size_t asr_file_count = 0;
             std::string asr_file;
@@ -702,14 +713,24 @@ namespace LCompilers::CommandLineInterface {
             source_file = opts.arg_pywrap_file;
         }
 
-        // Decide if a file is fixed format based on the extension
-        // Gfortran does the same thing
-        if (opts.fixed_form_infer && (endswith(source_file, ".f") || endswith(source_file, ".F"))) {
+        // GFortran selects fixed form from the extension (.f, .for, .ftn,
+        // .f77), and that form still uses the implicit typing rules unless
+        // IMPLICIT NONE or -fimplicit-none. `--fixed-form-infer` keeps the
+        // older opt-in for the same extensions.
+        bool legacy_fixed_form = endswith(source_file, ".f") ||
+            endswith(source_file, ".F") || endswith(source_file, ".for") ||
+            endswith(source_file, ".FOR") || endswith(source_file, ".ftn") ||
+            endswith(source_file, ".FTN") || endswith(source_file, ".f77") ||
+            endswith(source_file, ".F77");
+        if (legacy_fixed_form || (opts.fixed_form_infer &&
+                (endswith(source_file, ".f") || endswith(source_file, ".F")))) {
             compiler_options.fixed_form = true;
         }
 
         if (opts.disable_implicit_typing) {
             compiler_options.implicit_typing = false;
+        } else if (legacy_fixed_form) {
+            compiler_options.implicit_typing = true;
         }
 
         if (disable_implicit_argument_casting) {

@@ -3294,7 +3294,11 @@ int main_app(int argc, char *argv[]) {
             return 1;
 #endif
         } else if (endswith(arg_file, ".f90") || endswith(arg_file, ".f") ||
-            endswith(arg_file, ".F90") || endswith(arg_file, ".F")) {
+            endswith(arg_file, ".F90") || endswith(arg_file, ".F") ||
+            endswith(arg_file, ".f95") || endswith(arg_file, ".F95") ||
+            endswith(arg_file, ".f03") || endswith(arg_file, ".F03") ||
+            endswith(arg_file, ".f08") || endswith(arg_file, ".F08") ||
+            endswith(arg_file, ".for") || endswith(arg_file, ".FOR")) {
             any_fortran_src = true;
             if (backend == Backend::x86) {
                 return compile_to_binary_x86(arg_file, outfile,

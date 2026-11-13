@@ -816,6 +816,27 @@ int Tokenizer::lex(Allocator &al, YYSTYPE &yylval, Location &loc, diag::Diagnost
                 return lex_omp_directive(al, yylval, loc,
                     yytokentype::TK_OMP);
             }
+            // OpenMP conditional compilation: `!$` that is not `!$omp` is
+            // two spaces when OpenMP is enabled, and a comment otherwise.
+            "!$" [^\n\x00]* / newline {
+                if (openmp_enabled && !is_omp_sentinel(tok)) {
+                    cur = tok + 2;
+                    continue;
+                }
+                if (*cur == '\n') {
+                    cur++;
+                }
+                line_num++; cur_line=cur;
+                token(yylval.string);
+                yylval.string.n--;
+                token_loc(loc);
+                if (last_token == yytokentype::TK_NEWLINE) {
+                    return yytokentype::TK_COMMENT;
+                } else {
+                    last_token=yytokentype::TK_NEWLINE;
+                    return yytokentype::TK_EOLCOMMENT;
+                }
+            }
             pragma_decl / newline { TK_TRIVIA(TK_PRAGMA_DECL) }
 
             comment newline {
