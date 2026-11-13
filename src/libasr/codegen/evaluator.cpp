@@ -1202,14 +1202,16 @@ static void disable_upper_bound_unrolling() {
 // entry here is left as the LLVM intrinsic.
 // Only double. The float entry points differ from scalar expf in the last
 // bit, and elemental tests compare those results exactly.
-static const char *libmvec_exp_name(bool is_float, unsigned width) {
+static const char *libmvec_exp_name(bool is_float, unsigned width, bool avx2) {
     if (is_float) {
         return nullptr;
     }
     switch (width) {
-        case 2: return "_ZGVbN2v_exp";   // SSE
-        case 4: return "_ZGVcN4v_exp";   // AVX
-        case 8: return "_ZGVeN8v_exp";   // AVX-512
+        case 2: return "_ZGVbN2v_exp";
+        // The AVX entry point does not use FMA. On a target that has AVX2,
+        // glibc's AVX2 entry is the one gfortran calls for a 4-wide exp.
+        case 4: return avx2 ? "_ZGVdN4v_exp" : "_ZGVcN4v_exp";
+        case 8: return "_ZGVeN8v_exp";
         default: return nullptr;
     }
 }
@@ -1363,7 +1365,16 @@ static void lower_vector_exp_to_libmvec(llvm::Module &m) {
         if (!is_float && !vec->getElementType()->isDoubleTy()) {
             continue;
         }
-        const char *name = libmvec_exp_name(is_float, width);
+        bool avx2 = false;
+        if (llvm::Function *parent = call->getFunction()) {
+            if (parent->hasFnAttribute("target-features")) {
+                llvm::Attribute attr = parent->getFnAttribute("target-features");
+                if (attr.getValueAsString().contains("+avx2")) {
+                    avx2 = true;
+                }
+            }
+        }
+        const char *name = libmvec_exp_name(is_float, width, avx2);
         if (name == nullptr) {
             continue;
         }
