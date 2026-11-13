@@ -20714,6 +20714,17 @@ public:
                     x.m_source, source_arr_type, module.get());
                 llvm::Type* llvm_source_elem_type = llvm_utils->get_type_from_ttype_t_util(
                     x.m_source, ASRUtils::extract_type(source_arr_type), module.get());
+                // A character-string array, and an array section built from
+                // one, is held as a pointer to the descriptor pointer. The
+                // descriptor itself is one load in. Indexing the pointer
+                // slot as if it were the descriptor mixes the two levels.
+                if (source->getType()->isPointerTy()) {
+                    llvm::Type* pointee = source->getType()->getPointerElementType();
+                    if (pointee->isPointerTy() &&
+                            pointee->getPointerElementType() == llvm_source_arr_type) {
+                        source = llvm_utils->CreateLoad2(pointee, source);
+                    }
+                }
                 llvm::Value* data_ptr_ptr = arr_descr->get_pointer_to_data(
                     x.m_source, ASRUtils::expr_type(x.m_source), source, module.get());
                 source_ptr = llvm_utils->CreateLoad2(
