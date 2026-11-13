@@ -5126,26 +5126,39 @@ public:
                 if (pointee && pointee->isPointerTy() &&
                         arr_descr->is_array_descriptor_type(
                             pointee->getPointerElementType())) {
-                    llvm::Type* desc_ty = pointee->getPointerElementType();
-                    llvm::Value* desc = llvm_utils->CreateLoad2(pointee, arg_ptr);
-                    llvm::Value* desc_is_null = builder->CreateICmpEQ(
-                        desc, null_pointer(pointee));
-                    llvm::Function* fn = builder->GetInsertBlock()->getParent();
-                    llvm::BasicBlock* cur = builder->GetInsertBlock();
-                    llvm::BasicBlock* live = llvm::BasicBlock::Create(
-                        context, "present_desc", fn);
-                    llvm::BasicBlock* merge = llvm::BasicBlock::Create(
-                        context, "present_merge", fn);
-                    builder->CreateCondBr(desc_is_null, merge, live);
-                    builder->SetInsertPoint(live);
-                    llvm::Value* data_present = descriptor_data_present(desc_ty, desc);
-                    builder->CreateBr(merge);
-                    builder->SetInsertPoint(merge);
-                    llvm::PHINode* phi = builder->CreatePHI(
-                        llvm::Type::getInt1Ty(context), 2);
-                    phi->addIncoming(llvm::ConstantInt::getFalse(context), cur);
-                    phi->addIncoming(data_present, live);
-                    tmp = phi;
+                    if (!ASRUtils::is_host_associated(*arg_var)) {
+                        // An optional allocatable or pointer array is absent
+                        // exactly when this argument pointer is null. Its
+                        // data pointer is also null after an intent(out)
+                        // deallocation, and the dummy is still present.
+                        tmp = builder->CreateICmpNE(arg_ptr,
+                            null_pointer(arg_ptr->getType()));
+                    } else {
+                        // A host-associated array is reached through a view
+                        // that is always allocated. The descriptor's data
+                        // pointer is null when the host dummy is absent.
+                        llvm::Type* desc_ty = pointee->getPointerElementType();
+                        llvm::Value* desc = llvm_utils->CreateLoad2(pointee, arg_ptr);
+                        llvm::Value* desc_is_null = builder->CreateICmpEQ(
+                            desc, null_pointer(pointee));
+                        llvm::Function* fn = builder->GetInsertBlock()->getParent();
+                        llvm::BasicBlock* cur = builder->GetInsertBlock();
+                        llvm::BasicBlock* live = llvm::BasicBlock::Create(
+                            context, "present_desc", fn);
+                        llvm::BasicBlock* merge = llvm::BasicBlock::Create(
+                            context, "present_merge", fn);
+                        builder->CreateCondBr(desc_is_null, merge, live);
+                        builder->SetInsertPoint(live);
+                        llvm::Value* data_present = descriptor_data_present(
+                            desc_ty, desc);
+                        builder->CreateBr(merge);
+                        builder->SetInsertPoint(merge);
+                        llvm::PHINode* phi = builder->CreatePHI(
+                            llvm::Type::getInt1Ty(context), 2);
+                        phi->addIncoming(llvm::ConstantInt::getFalse(context), cur);
+                        phi->addIncoming(data_present, live);
+                        tmp = phi;
+                    }
                 } else if (data_pointer_in_descriptor) {
                     tmp = descriptor_data_present(pointee, arg_ptr);
                 } else if (ASR::is_a<ASR::CPtr_t>(*arg_var->m_type) &&
