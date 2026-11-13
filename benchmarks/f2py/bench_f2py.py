@@ -8,10 +8,13 @@ this driver does the compile and link f2py's meson backend would do.
 
 Workloads use the SciPy 1.14.1 Fortran sources (fitpack curfit/splev, minpack
 lmdif and hybrd1, quadpack dqags, L-BFGS-B setulb, ARPACK dsaupd, ODEPACK
-lsoda) plus FFTPACK 4 rfftf/rfftb (the real transforms SciPy 1.3.3 shipped;
-1.14.1 no longer has them), a triple loop, and a reduction. The timed region
-is one call into the extension. Compilers share one core: each repeat runs
-every compiler once, in rotating order, after a warmup of the same shape.
+lsoda, ODRPACK dodr, the deterministic iddr_id closure, PROPACK dlansvd)
+plus FFTPACK 4 rfftf/rfftb (the real transforms SciPy 1.3.3 shipped;
+1.14.1 no longer has them), a triple loop, and a reduction. specfun in
+1.14.1 is the C++ port under scipy/special/special/specfun, so it is not
+a Fortran workload here. The timed region is one call into the extension.
+Compilers share one core: each repeat runs every compiler once, in
+rotating order, after a warmup of the same shape.
 
 LFortran flags (this is what --fast means in this tree, plus the flags SciPy's
 fixed-form sources need and the flag this NumPy adds when FC names LFortran):
@@ -154,6 +157,28 @@ def fortran_sources(scipy: Path, kind: str) -> list[Path]:
     if kind == "fftpack":
         # Real rffti/rfftf/rfftb and the radf/radb kernels in the same files.
         return sorted((SRC / "fftpack").glob("*.f"))
+    if kind == "odrpack":
+        names = ["d_odr.f", "d_lpk.f", "d_mprec.f", "dlunoc.f"]
+        base = scipy / "scipy/odr/odrpack"
+        return [base / name for name in names]
+    if kind == "id_dist":
+        # iddr_id and the QR it calls. The SVD and FFT files keep integer
+        # factor tables inside a real workspace; LFortran rejects that, so
+        # they are not part of this closure.
+        names = [
+            "idd_house.f", "idd_id.f", "idd_qrpiv.f", "idd_snorm.f",
+            "id_rand.f", "prini.f",
+        ]
+        base = scipy / "scipy/linalg/src/id_dist/src"
+        return [base / name for name in names]
+    if kind == "propack":
+        names = [
+            "dblasext.F", "dlansvd.F", "dlanbpro.F", "dreorth.F",
+            "dgetu0.F", "dsafescal.F", "dritzvec.F", "dmgs.risc.F",
+            "dbsvd.F", "dgemm_ovwr.F", "printstat.F",
+        ]
+        base = scipy / "scipy/sparse/linalg/_propack/PROPACK/double"
+        return [base / name for name in names]
     if kind == "arpack":
         # dsaupd/dseupd call closure. The complex drivers need SciPy's g77
         # zdotc wrapper (wzdotc) and are not part of this eigenproblem.
@@ -233,16 +258,23 @@ def build_extension(f2py_mod, spec: dict, compiler: str, flags: list[str],
     wrappers += list(dest.glob(f"{modname}-f2pywrappers*.f90"))
     sources.extend(p for p in wrappers if p.stat().st_size > 0)
     inc = []
+    for rel in spec.get("include", []):
+        inc.extend(["-I", str(scipy / rel)])
     if spec["scipy"] == "arpack":
-        inc = ["-I", str(scipy / ARPACK_SRC[0])]
+        inc.extend(["-I", str(scipy / ARPACK_SRC[0])])
 
     def one(src: Path) -> tuple[Path, float]:
         obj = dest / (src.stem + ".o")
         # Disambiguate duplicate stems (ARPACK has none, but wrappers might).
         if obj.exists():
             obj = dest / (src.parent.name + "_" + src.stem + ".o")
+        extra = []
+        # gfortran preprocesses .F from the suffix. LFortran needs both
+        # the preprocessor and fixed form for those SciPy sources.
+        if src.suffix == ".F" and compiler.startswith("lfortran"):
+            extra.extend(["--fixed-form", "--cpp"])
         if compiler.startswith("lfortran"):
-            cmd = [str(LFORTRAN), "-c", *flags, *inc, str(src), "-o", str(obj)]
+            cmd = [str(LFORTRAN), "-c", *flags, *extra, *inc, str(src), "-o", str(obj)]
         else:
             cmd = [GFORTRAN, "-c", *flags, *inc, str(src), "-o", str(obj)]
         elapsed = compile_one(cmd, dest / (obj.stem + ".log"))
@@ -548,6 +580,52 @@ def make_cases(module):
         return (f"istate={istate} nfe={nfe} nst={nst} "
                 f"y1={y1:.6e} y2={y2:.3e} y3={y3:.6e}")
 
+    nrep_odr = 400
+
+    def odr():
+        info, nfev, b1, b2 = module.bench_odr(nrep_odr)
+        return int(info), int(nfev), float(b1), float(b2)
+
+    def check_odr():
+        info, nfev, b1, b2 = odr()
+        berr = max(abs(b1 - 1.0), abs(b2 - 2.0))
+        # Explicit ODR of y = 1 + 2x. info 2 is the parameter stop at that
+        # line. info outside 1..3, or a handful of residual evaluations,
+        # is not the fit.
+        if info < 1 or info > 3 or berr > 1e-8 or nfev < nrep_odr * 8:
+            raise AssertionError(
+                f"odr info={info} nfev={nfev} b1={b1} b2={b2}")
+        return f"info={info} nfev={nfev} berr={berr:.3e}"
+
+    nrep_id = 80
+
+    def idist():
+        krank, nfev, recon = module.bench_id(nrep_id)
+        return int(krank), int(nfev), float(recon)
+
+    def check_id():
+        krank, nfev, recon = idist()
+        # Rank-8 matrix, fixed-rank ID, reconstruction against the original.
+        if krank != 8 or nfev != nrep_id or recon > 1e-8:
+            raise AssertionError(
+                f"id krank={krank} nfev={nfev} recon={recon}")
+        return f"nfev={nfev} krank={krank} recon={recon:.3e}"
+
+    nrep_pp = 250
+
+    def propack():
+        info, nfev, serr = module.bench_propack(nrep_pp)
+        return int(info), int(nfev), float(serr)
+
+    def check_propack():
+        info, nfev, serr = propack()
+        # Four singular values of a diagonal with a gap. info 0 and a
+        # short matvec count is the Krylov limit, not a converged run.
+        if info != 0 or serr > 1e-6 or nfev < nrep_pp * 16:
+            raise AssertionError(
+                f"propack info={info} nfev={nfev} sigma_err={serr}")
+        return f"info={info} nfev={nfev} sigma_err={serr:.3e}"
+
     return {
         "triple_loop": (triple, check_triple),
         "reduction": (reduce, check_reduce),
@@ -560,6 +638,9 @@ def make_cases(module):
         "lbfgsb_setulb": (setulb, check_setulb),
         "arpack_dsaupd": (dsaupd, check_dsaupd),
         "odepack_lsoda": (lsoda, check_lsoda),
+        "odrpack_dodr": (odr, check_odr),
+        "id_dist_id": (idist, check_id),
+        "propack_lansvd": (propack, check_propack),
     }
 
 
@@ -635,6 +716,31 @@ SPECS = [
         "scipy": "fftpack",
         "blas": False,
         "calls": ["fftpack_rfft"],
+    },
+    {
+        "name": "odrpack",
+        "driver": SRC / "odrpack_bench.f90",
+        "only": ["bench_odr"],
+        "scipy": "odrpack",
+        "blas": True,
+        "calls": ["odrpack_dodr"],
+    },
+    {
+        "name": "id_dist",
+        "driver": SRC / "id_dist_bench.f90",
+        "only": ["bench_id"],
+        "scipy": "id_dist",
+        "blas": True,
+        "calls": ["id_dist_id"],
+    },
+    {
+        "name": "propack",
+        "driver": SRC / "propack_bench.f90",
+        "only": ["bench_propack"],
+        "scipy": "propack",
+        "blas": True,
+        "include": ["scipy/sparse/linalg/_propack/PROPACK/double"],
+        "calls": ["propack_lansvd"],
     },
 ]
 
