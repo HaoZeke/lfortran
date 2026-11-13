@@ -3316,6 +3316,10 @@ filename = "../integration_tests/hollerith_fixed_form_01.f"
 run = true
 
 [[test]]
+filename = "../integration_tests/function_name_hollerith_01.f"
+run = true
+
+[[test]]
 filename = "fmt_fixed_form1.f"
 fmt = true
 options = "--fixed-form"

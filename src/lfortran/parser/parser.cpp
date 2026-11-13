@@ -796,8 +796,18 @@ bool copy_rest_of_line(std::string &out, const std::string &s, size_t &pos,
             lm.files.back().out_start.push_back(source_offset(out.size()));
             lm.files.back().in_start.push_back(source_offset(pos));
         } else if (is_num(s[pos])) {
-            if (hol_num < 0) hol_num = 0;
-            hol_num = hol_num * 10 + (s[pos] - '0');
+            if (hol_num < 0) {
+                // An nH count is a number token. Digits inside an identifier
+                // (`MA02HD`) are not a count, or the name is split at `H`
+                // and the rest of the line is kept as character data.
+                unsigned char prev = out.empty() ? '\n'
+                    : static_cast<unsigned char>(out.back());
+                bool in_name = (prev >= 'a' && prev <= 'z')
+                    || (prev >= 'A' && prev <= 'Z')
+                    || (prev >= '0' && prev <= '9') || prev == '_';
+                if (!in_name) hol_num = 0;
+            }
+            if (hol_num >= 0) hol_num = hol_num * 10 + (s[pos] - '0');
             out += s[pos];
             pos++;
             col++;
