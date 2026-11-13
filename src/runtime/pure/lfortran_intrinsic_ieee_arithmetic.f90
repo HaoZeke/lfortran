@@ -58,7 +58,7 @@ module lfortran_intrinsic_ieee_arithmetic
     end interface
 
     interface ieee_value
-        module procedure spieee_value, dpieee_value, qpieee_value
+        module procedure spieee_value, dpieee_value, xpieee_value, qpieee_value
     end interface
 
     interface ieee_is_nan
@@ -336,6 +336,40 @@ module lfortran_intrinsic_ieee_arithmetic
             y = 1.0_real64
         case (10)  ! ieee_positive_inf
             y = transfer(int(z'7FF0000000000000', kind=8), 1.0_real64)
+        case (11)  ! ieee_other_value
+            y = x
+        case default
+            y = x
+        end select
+    end function
+
+    elemental function xpieee_value(x, cls) result(y)
+        real(10), intent(in) :: x
+        type(ieee_class_type), intent(in) :: cls
+        real(10) :: y
+        ! x86 80-bit: the significand is the first 8 bytes and the sign and
+        ! exponent are the next 2. The remaining 6 bytes are padding.
+        select case (cls%value)
+        case (1)  ! ieee_signaling_nan
+            y = transfer([int(z'A000000000000000', kind=8), int(z'7FFF', kind=8)], 1.0_10)
+        case (2)  ! ieee_quiet_nan
+            y = transfer([int(z'C000000000000000', kind=8), int(z'7FFF', kind=8)], 1.0_10)
+        case (3)  ! ieee_negative_inf
+            y = transfer([int(z'8000000000000000', kind=8), int(z'FFFF', kind=8)], 1.0_10)
+        case (4)  ! ieee_negative_normal
+            y = -1.0_10
+        case (5)  ! ieee_negative_denormal
+            y = transfer([int(z'4000000000000000', kind=8), int(z'8000', kind=8)], 1.0_10)
+        case (6)  ! ieee_negative_zero
+            y = transfer([0_8, int(z'8000', kind=8)], 1.0_10)
+        case (7)  ! ieee_positive_zero
+            y = 0.0_10
+        case (8)  ! ieee_positive_denormal
+            y = transfer([int(z'4000000000000000', kind=8), 0_8], 1.0_10)
+        case (9)  ! ieee_positive_normal
+            y = 1.0_10
+        case (10)  ! ieee_positive_inf
+            y = transfer([int(z'8000000000000000', kind=8), int(z'7FFF', kind=8)], 1.0_10)
         case (11)  ! ieee_other_value
             y = x
         case default
