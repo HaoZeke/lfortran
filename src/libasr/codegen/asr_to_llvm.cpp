@@ -10039,21 +10039,27 @@ public:
                     llvm::APInt bits(128, llvm::ArrayRef<uint64_t>(words, 2));
                     return llvm::ConstantFP::get(context,
                         llvm::APFloat(llvm::APFloat::IEEEquad(), bits));
+                } else if (ASRUtils::extract_kind_from_ttype_t(rc->m_type) == 10) {
+                    if (llvm::Constant* c = real_constant_to_llvm(*rc)) {
+                        return c;
+                    }
                 }
                 break;
             }
             case ASR::exprType::ComplexConstructor: {
                 ASR::ComplexConstructor_t* cc = ASR::down_cast<ASR::ComplexConstructor_t>(expr);
-                if (ASRUtils::extract_kind_from_ttype_t(cc->m_type) != 16) {
+                int ck = ASRUtils::extract_kind_from_ttype_t(cc->m_type);
+                if (ck != 16 && ck != 10) {
                     break;
                 }
-                ASR::ttype_t* real16 = ASRUtils::TYPE(ASR::make_Real_t(al, expr->base.loc, 16));
-                llvm::Constant* re = create_llvm_constant_from_asr_expr(cc->m_re, real16);
-                llvm::Constant* im = create_llvm_constant_from_asr_expr(cc->m_im, real16);
+                ASR::ttype_t* part = ASRUtils::TYPE(ASR::make_Real_t(al, expr->base.loc, ck));
+                llvm::Constant* re = create_llvm_constant_from_asr_expr(cc->m_re, part);
+                llvm::Constant* im = create_llvm_constant_from_asr_expr(cc->m_im, part);
                 if (re == nullptr || im == nullptr) {
                     break;
                 }
-                return llvm::ConstantStruct::get(complex_type_16, {re, im});
+                llvm::StructType* ctype = ck == 16 ? complex_type_16 : complex_type_10;
+                return llvm::ConstantStruct::get(ctype, {re, im});
             }
             case ASR::exprType::ComplexConstant: {
                 ASR::ComplexConstant_t* cc = ASR::down_cast<ASR::ComplexConstant_t>(expr);

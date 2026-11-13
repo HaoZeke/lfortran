@@ -964,14 +964,16 @@ static inline ASR::expr_t* expr_value(ASR::expr_t *f)
 {
     ASR::expr_t* value = ASR::expr_value0(f);
     if (value == nullptr && f->type == ASR::exprType::ComplexConstructor) {
-        // A constant complex(16) value is a constructor from two real(16)
-        // constants (a ComplexConstant holds doubles), which is its own value.
+        // A constant complex(16) or complex(10) value is a constructor from
+        // two real constants (a ComplexConstant holds doubles), which is its
+        // own value.
         ASR::ComplexConstructor_t* c = (ASR::ComplexConstructor_t*)f;
         ASR::expr_t* re = ASR::expr_value0(c->m_re);
         ASR::expr_t* im = ASR::expr_value0(c->m_im);
+        int kind = extract_kind_from_ttype_t(c->m_type);
         if (re && im && re->type == ASR::exprType::RealConstant &&
                 im->type == ASR::exprType::RealConstant &&
-                extract_kind_from_ttype_t(c->m_type) == 16) {
+                (kind == 16 || kind == 10)) {
             return f;
         }
     }

@@ -9005,10 +9005,11 @@ bool is_value_constant(ASR::expr_t *a_value) {
             return true;
         }
         case ASR::exprType::ComplexConstructor: {
-            // A complex(16) constant is a constructor from two real(16)
-            // constants, as a ComplexConstant cannot hold its value.
+            // A complex(16) or complex(10) constant is a constructor from
+            // two real constants, as a ComplexConstant cannot hold its value.
             ASR::ComplexConstructor_t* cc = ASR::down_cast<ASR::ComplexConstructor_t>(a_value);
-            return ASRUtils::extract_kind_from_ttype_t(cc->m_type) == 16 &&
+            int kind = ASRUtils::extract_kind_from_ttype_t(cc->m_type);
+            return (kind == 16 || kind == 10) &&
                 is_value_constant(expr_value(cc->m_re)) &&
                 is_value_constant(expr_value(cc->m_im));
         }
