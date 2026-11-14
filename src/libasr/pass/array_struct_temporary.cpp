@@ -4364,6 +4364,21 @@ class ArgSimplifier: public ASR::CallReplacerOnExpressionsVisitor<ArgSimplifier>
                 operations_read_in_place);
         }
         visit_expr(*xx.m_value);
+        // `t = pack(array, mask)` writes the result into `t`. `t` is still
+        // unallocated, and its length is `count(mask)`. Allocate it from the
+        // mask argument, which visit_expr has already evaluated.
+        {
+            ASR::expr_t* packed = ASRUtils::get_past_array_physical_cast(xx.m_value);
+            if (current_body &&
+                    ASR::is_a<ASR::IntrinsicArrayFunction_t>(*packed) &&
+                    ASR::down_cast<ASR::IntrinsicArrayFunction_t>(packed)->m_arr_intrinsic_id ==
+                        static_cast<int64_t>(ASRUtils::IntrinsicArrayFunctions::Pack) &&
+                    ASRUtils::is_array(ASRUtils::expr_type(xx.m_target)) &&
+                    ASRUtils::is_allocatable(ASRUtils::expr_type(xx.m_target))) {
+                insert_allocate_stmt_for_array(al, xx.m_target, packed,
+                    current_body, nullptr, true);
+            }
+        }
         // Handle case where LHS is StructInstanceMember over an array
         // e.g., res%a = reshape([1.0,2.0,3.0,4.0],[2,2]) where res is an array
         if (ASR::is_a<ASR::StructInstanceMember_t>(*xx.m_target)) {
