@@ -1783,6 +1783,89 @@ end subroutine
     CHECK(widest == 1);
 }
 
+TEST_CASE("LLVM --fast keeps a runtime stride copy scalar") {
+    // Skylake-AVX512's gather is legal, and a runtime incx makes the
+    // vectorizer emit one. The short copies in dcopy_ are faster as a
+    // scalar step. A constant unit stride in the same routine stays
+    // available to the vectorizer.
+    std::string source = R"(subroutine stride_copy(n, incx, x, y)
+integer, intent(in) :: n, incx
+real(8), intent(in) :: x(*)
+real(8), intent(out) :: y(*)
+integer :: i, ix
+if (incx == 1) then
+    do i = 1, n
+        y(i) = x(i)
+    end do
+    return
+end if
+ix = 1
+do i = 1, n
+    y(i) = x(ix)
+    ix = ix + incx
+end do
+end subroutine
+)";
+    Allocator al(64*1024);
+    LCompilers::diag::Diagnostics diagnostics;
+    CompilerOptions co;
+    co.po.runtime_library_dir = LFORTRAN_BUILD_RUNTIME_DIR;
+    co.platform = LCompilers::get_platform();
+    co.po.fast = true;
+    co.po.bounds_checking = false;
+    co.po.strict_bounds_checking = false;
+    co.mcpu = "skylake-avx512";
+    LCompilers::LLVMEvaluator e(co);
+    LCompilers::LFortran::AST::TranslationUnit_t* tu = TRY(
+        LCompilers::LFortran::parse(al, source, diagnostics, co));
+    LCompilers::LocationManager lm;
+    LCompilers::LocationManager::FileLocations file;
+    file.in_filename = "stride_copy.f90";
+    lm.files.push_back(file);
+    lm.file_ends.push_back(LCompilers::LFortran::source_offset(source.size()));
+    LCompilers::ASR::TranslationUnit_t* asr = TRY(
+        LCompilers::LFortran::ast_to_asr(al, *tu, diagnostics, nullptr, false,
+            co, lm));
+    LCompilers::PassManager lpm;
+    lpm.use_default_passes();
+    LCompilers::Result<std::unique_ptr<LCompilers::LLVMModule>> res
+        = LCompilers::asr_to_llvm(*asr, diagnostics, e.get_context(),
+            e.get_target_config(), al, lpm, co, "", "", "", lm);
+    INFO(diagnostics.render2());
+    REQUIRE(res.ok);
+    e.opt(*res.result->m_m);
+    llvm::Function *fn = nullptr;
+    for (llvm::Function &f : *res.result->m_m) {
+        if (!f.isDeclaration() && f.getName() == "stride_copy") fn = &f;
+    }
+    REQUIRE(fn != nullptr);
+    bool gather = false;
+    bool unit_stride = false;
+    for (llvm::BasicBlock &block : *fn) {
+        for (llvm::Instruction &inst : block) {
+            if (auto *call = llvm::dyn_cast<llvm::CallInst>(&inst)) {
+                if (llvm::Function *callee = call->getCalledFunction()) {
+                    llvm::StringRef name = callee->getName();
+                    if (name.find("gather") != llvm::StringRef::npos
+                            || name.find("scatter") != llvm::StringRef::npos) {
+                        gather = true;
+                    }
+                    if (name.find("memcpy") != llvm::StringRef::npos
+                            || name.find("memmove") != llvm::StringRef::npos) {
+                        unit_stride = true;
+                    }
+                }
+            }
+            if (inst.getOpcode() == llvm::Instruction::Load
+                    && inst.getType()->isVectorTy()) {
+                unit_stride = true;
+            }
+        }
+    }
+    CHECK(!gather);
+    CHECK(unit_stride);
+}
+
 TEST_CASE("LLVM TBAA metadata under --fast") {
     std::string source = R"(module tbaa_ir_m
 implicit none

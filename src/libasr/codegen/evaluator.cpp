@@ -9,7 +9,11 @@
 
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/ADT/STLExtras.h>
+#include <llvm/Analysis/AssumptionCache.h>
+#include <llvm/Analysis/LoopInfo.h>
 #include <llvm/Analysis/Passes.h>
+#include <llvm/Analysis/ScalarEvolution.h>
+#include <llvm/Analysis/ScalarEvolutionExpressions.h>
 #include <llvm/Analysis/TargetTransformInfo.h>
 #include <llvm/Analysis/TargetLibraryInfo.h>
 #include <llvm/ExecutionEngine/ExecutionEngine.h>
@@ -38,6 +42,8 @@
 #include <llvm/ADT/StringMap.h>
 #include <llvm/IR/Verifier.h>
 #include <llvm/Transforms/Utils/Cloning.h>
+#include <llvm/Transforms/Utils/LoopUtils.h>
+#include <llvm/Pass.h>
 #include <llvm/MC/MCSubtargetInfo.h>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Target/TargetMachine.h>
@@ -2328,6 +2334,86 @@ static bool widen_strict_product_reduction(llvm::BasicBlock *loop) {
     return true;
 }
 
+// A pure copy with a runtime stride becomes an AVX-512 gather/scatter.
+// The short trips in `dcopy_` are faster as a scalar pointer step, which
+// is what gfortran emits. A loop that also does arithmetic, such as the
+// inner product `a(i, k) * b(k, j)`, keeps the vector plan: one of those
+// streams has a constant step.
+static bool is_runtime_step(llvm::Loop *loop, llvm::Value *ptr,
+        llvm::ScalarEvolution &se) {
+    const llvm::SCEV *scev = se.getSCEV(ptr);
+    auto *addrec = llvm::dyn_cast<llvm::SCEVAddRecExpr>(scev);
+    if (!addrec || addrec->getLoop() != loop) return false;
+    return !llvm::isa<llvm::SCEVConstant>(addrec->getStepRecurrence(se));
+}
+
+static bool forbid_gather_on_runtime_stride(llvm::Function &fn) {
+    if (fn.isDeclaration() || fn.empty()) return false;
+    llvm::TargetLibraryInfoImpl tlii(
+        llvm::Triple(fn.getParent()->getTargetTriple()));
+    llvm::TargetLibraryInfo tli(tlii);
+    llvm::AssumptionCache ac(fn);
+    llvm::DominatorTree dt(fn);
+    llvm::LoopInfo li(dt);
+    llvm::ScalarEvolution se(fn, tli, ac, dt, li);
+    bool changed = false;
+    for (llvm::Loop *loop : li.getLoopsInPreorder()) {
+        bool copy = false;
+        bool runtime_stride = false;
+        bool arithmetic = false;
+        for (llvm::BasicBlock *bb : loop->blocks()) {
+            for (llvm::Instruction &inst : *bb) {
+                if (inst.getOpcode() == llvm::Instruction::FAdd
+                        || inst.getOpcode() == llvm::Instruction::FSub
+                        || inst.getOpcode() == llvm::Instruction::FMul
+                        || inst.getOpcode() == llvm::Instruction::FDiv
+                        || inst.getOpcode() == llvm::Instruction::FRem) {
+                    arithmetic = true;
+                    continue;
+                }
+                auto *store = llvm::dyn_cast<llvm::StoreInst>(&inst);
+                if (!store) continue;
+                llvm::Value *stored = store->getValueOperand();
+                if (auto *cast = llvm::dyn_cast<llvm::CastInst>(stored)) {
+                    stored = cast->getOperand(0);
+                }
+                auto *load = llvm::dyn_cast<llvm::LoadInst>(stored);
+                if (!load) continue;
+                copy = true;
+                if (is_runtime_step(loop, load->getPointerOperand(), se)
+                        || is_runtime_step(loop, store->getPointerOperand(), se)) {
+                    runtime_stride = true;
+                }
+            }
+        }
+        if (!copy || !runtime_stride || arithmetic) continue;
+        llvm::addStringMetadataToLoop(loop, "llvm.loop.vectorize.enable", 0);
+        changed = true;
+    }
+    return changed;
+}
+
+#if LLVM_VERSION_MAJOR < 17
+struct ForbidGatherPass : public llvm::FunctionPass {
+    static char ID;
+    ForbidGatherPass() : llvm::FunctionPass(ID) {}
+    bool runOnFunction(llvm::Function &fn) override {
+        return forbid_gather_on_runtime_stride(fn);
+    }
+};
+char ForbidGatherPass::ID = 0;
+#else
+struct ForbidGatherPass : llvm::PassInfoMixin<ForbidGatherPass> {
+    llvm::PreservedAnalyses run(llvm::Function &fn,
+            llvm::FunctionAnalysisManager &) {
+        if (forbid_gather_on_runtime_stride(fn)) {
+            return llvm::PreservedAnalyses::none();
+        }
+        return llvm::PreservedAnalyses::all();
+    }
+};
+#endif
+
 void LLVMEvaluator::opt(llvm::Module &m) {
     configure_module(m);
     disable_load_pre();
@@ -2351,6 +2437,10 @@ void LLVMEvaluator::opt(llvm::Module &m) {
     // separate pass and stays on.
     PTO.LoopInterleaving = false;
     llvm::PassBuilder PB = llvm::PassBuilder(TM.get(), PTO);
+    PB.registerVectorizerStartEPCallback(
+        [](llvm::FunctionPassManager &fpm, llvm::OptimizationLevel) {
+            fpm.addPass(ForbidGatherPass());
+        });
     PB.registerModuleAnalyses(MAM);
     PB.registerCGSCCAnalyses(CGAM);
     PB.registerFunctionAnalyses(FAM);
@@ -2388,6 +2478,11 @@ void LLVMEvaluator::opt(llvm::Module &m) {
     // count of 1 when this is false. The default count is 4 on x86, so
     // the vector body is skipped below 16 iterations.
     builder.LoopsInterleaved = false;
+    builder.addExtension(llvm::PassManagerBuilder::EP_VectorizerStart,
+        [](const llvm::PassManagerBuilder &,
+           llvm::legacy::PassManagerBase &pm) {
+            pm.add(new ForbidGatherPass());
+        });
     builder.populateFunctionPassManager(fpm);
     builder.populateModulePassManager(mpm);
     fpm.doInitialization();
