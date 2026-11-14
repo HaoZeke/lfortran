@@ -719,8 +719,12 @@ public:
                                                   array_type->m_dims, array_type->n_dims, ASR::array_physical_typeType::FixedSizeArray, ASR::memory_spaceType::Global));
                         value = ASRUtils::EXPR(ASRUtils::make_ArrayConstant_t_util(al, value->base.loc,
                             new_data, new_array_type, array->m_storage_format));
-                    } else if (dest_kind == 16) {
-                        // the data of a constant array has no real(16) or complex(16) element: not folded
+                    } else if (dest_kind == 10 || dest_kind == 16) {
+                        // Kind 10 is an x86 extended value and kind 16 is
+                        // binary128. Neither is stored as complex<float> or
+                        // complex<double>. Keeping the integer array as the
+                        // folded value makes `--fast` read those bytes as
+                        // the complex result.
                         value = nullptr;
                     }
                 }
