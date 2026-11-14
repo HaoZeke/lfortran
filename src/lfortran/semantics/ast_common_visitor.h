@@ -12842,21 +12842,34 @@ public:
                                 init_expr = ASRUtils::EXPR(ASRUtils::make_ArrayConstant_t_util(
                                     al, init_expr->base.loc, nullptr, type,
                                     ASR::arraystorageType::ColMajor));
+                                value = init_expr;
                             } else {
-                                init_expr = ASRUtils::expr_value(
-                                    ASRUtils::EXPR(ASRUtils::make_ArrayConstructor_t_util(al, init_expr->base.loc,
-                                        args.p, args.n, type, ASR::arraystorageType::ColMajor))
-                                );
+                                ASR::expr_t *ctor = ASRUtils::EXPR(
+                                    ASRUtils::make_ArrayConstructor_t_util(
+                                        al, init_expr->base.loc, args.p, args.n,
+                                        type, ASR::arraystorageType::ColMajor));
+                                ASR::expr_t *folded = ASRUtils::expr_value(ctor);
+                                if (folded && ASR::is_a<ASR::ArrayConstant_t>(*folded)) {
+                                    init_expr = folded;
+                                    // The folded constant has a rank 1 type;
+                                    // give it the rank and bounds of the
+                                    // declared array, as
+                                    // `integer :: x(2,2) = 1` is a 2x2 array.
+                                    ASR::down_cast<ASR::ArrayConstant_t>(init_expr)->m_type =
+                                        ASRUtils::duplicate_type(al, type);
+                                    value = init_expr;
+                                } else {
+                                    // `real(10)` and `real(16)` are not packed
+                                    // into an array constant. Keep the
+                                    // constructor, with the declared rank.
+                                    if (ASR::is_a<ASR::ArrayConstructor_t>(*ctor)) {
+                                        ASR::down_cast<ASR::ArrayConstructor_t>(ctor)->m_type =
+                                            ASRUtils::duplicate_type(al, type);
+                                    }
+                                    init_expr = ctor;
+                                    value = ctor;
+                                }
                             }
-                            LCOMPILERS_ASSERT(ASR::is_a<ASR::ArrayConstant_t>(*init_expr));
-                            // The folded constant has a rank 1 type; give it
-                            // the rank and bounds of the declared array, as
-                            // `integer :: x(2,2) = 1` is a 2x2 array. A
-                            // component default is filled into a structure
-                            // constructor, which checks its rank.
-                            ASR::down_cast<ASR::ArrayConstant_t>(init_expr)->m_type =
-                                ASRUtils::duplicate_type(al, type);
-                            value = init_expr;
                         }
                     }
                     if (!is_compile_time && ASR::is_a<ASR::Array_t>(*type)
