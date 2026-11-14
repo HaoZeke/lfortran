@@ -5227,6 +5227,35 @@ public:
                     tmp = descriptor_data_present(desc_ty, arg_ptr);
                 } else if (character_data) {
                     tmp = descriptor_data_present(llvm_utils->string_descriptor, arg_ptr);
+                } else if (ASRUtils::is_class_type(ASRUtils::extract_type(ty))
+                        && !alloc_or_pointer && !ASRUtils::is_array(ty)) {
+                    // A non-allocatable polymorphic dummy is a class wrapper
+                    // {vptr, data*}. Forwarding an absent optional builds a
+                    // wrapper whose data pointer is null, so the wrapper
+                    // address itself is not enough to decide `present()`.
+                    llvm::Value* wrapper_null = builder->CreateICmpEQ(
+                        arg_ptr, null_pointer(arg_ptr->getType()));
+                    llvm::Function* fn = builder->GetInsertBlock()->getParent();
+                    llvm::BasicBlock* cur = builder->GetInsertBlock();
+                    llvm::BasicBlock* live = llvm::BasicBlock::Create(
+                        context, "present_class", fn);
+                    llvm::BasicBlock* merge = llvm::BasicBlock::Create(
+                        context, "present_class_merge", fn);
+                    builder->CreateCondBr(wrapper_null, merge, live);
+                    builder->SetInsertPoint(live);
+                    llvm::Type* class_ty = llvm_utils->get_type_from_ttype_t_util(
+                        arg_expr, ASRUtils::extract_type(ty), module.get());
+                    llvm::Type* data_ty = llvm::cast<llvm::StructType>(class_ty)->getElementType(1);
+                    llvm::Value* data = llvm_utils->CreateLoad2(data_ty,
+                        llvm_utils->create_gep2(class_ty, arg_ptr, 1));
+                    llvm::Value* data_present = pointer_present(data);
+                    builder->CreateBr(merge);
+                    builder->SetInsertPoint(merge);
+                    llvm::PHINode* phi = builder->CreatePHI(
+                        llvm::Type::getInt1Ty(context), 2);
+                    phi->addIncoming(llvm::ConstantInt::getFalse(context), cur);
+                    phi->addIncoming(data_present, live);
+                    tmp = phi;
                 } else if (ASR::is_a<ASR::CPtr_t>(*ty) &&
                         LLVM::is_cptr_dummy_in_local_storage(*arg_var)) {
                     // intent(in) type(c_ptr) is held as void**. The value,
