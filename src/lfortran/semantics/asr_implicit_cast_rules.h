@@ -768,8 +768,10 @@ public:
                                                           array_type->m_dims, array_type->n_dims, ASR::array_physical_typeType::FixedSizeArray, ASR::memory_spaceType::Global));
                         value = ASRUtils::EXPR(ASRUtils::make_ArrayConstant_t_util(al, value->base.loc,
                             new_data, new_array_type, array->m_storage_format));
-                    } else if (dest_kind == 16) {
-                        // the data of a constant array has no real(16) or complex(16) element: not folded
+                    } else {
+                        // Kind 10 and 16 are not stored as complex<float> or
+                        // complex<double>. Keeping the source bytes makes a
+                        // complex(10) value compare unequal to itself.
                         value = nullptr;
                     }
                 }
