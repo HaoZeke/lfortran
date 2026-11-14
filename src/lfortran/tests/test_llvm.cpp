@@ -1986,6 +1986,66 @@ end subroutine
     CHECK(!vector_add);
 }
 
+TEST_CASE("LLVM --fast --no-fast-math leaves a backward product scalar") {
+    // bsum = bsum + a(j)*b(m-j) is not two forward streams. The vector
+    // header made basym and dwght slower, so this stays a scalar fadd.
+    std::string source = R"(subroutine rev_dot(n, a, b, s)
+integer, intent(in) :: n
+real(8), intent(in) :: a(*), b(*)
+real(8), intent(out) :: s
+integer :: j
+s = 0.0d0
+do j = 1, n
+    s = s + a(j)*b(n+1-j)
+end do
+end subroutine
+)";
+    Allocator al(64*1024);
+    LCompilers::diag::Diagnostics diagnostics;
+    CompilerOptions co;
+    co.po.runtime_library_dir = LFORTRAN_BUILD_RUNTIME_DIR;
+    co.platform = LCompilers::get_platform();
+    co.po.fast = true;
+    co.po.no_fast_math = true;
+    co.po.bounds_checking = false;
+    co.po.strict_bounds_checking = false;
+    co.mcpu = "haswell";
+    LCompilers::LLVMEvaluator e(co);
+    LCompilers::LFortran::AST::TranslationUnit_t* tu = TRY(
+        LCompilers::LFortran::parse(al, source, diagnostics, co));
+    LCompilers::LocationManager lm;
+    LCompilers::LocationManager::FileLocations file;
+    file.in_filename = "rev_dot.f90";
+    lm.files.push_back(file);
+    lm.file_ends.push_back(LCompilers::LFortran::source_offset(source.size()));
+    LCompilers::ASR::TranslationUnit_t* asr = TRY(
+        LCompilers::LFortran::ast_to_asr(al, *tu, diagnostics, nullptr, false,
+            co, lm));
+    LCompilers::PassManager lpm;
+    lpm.use_default_passes();
+    LCompilers::Result<std::unique_ptr<LCompilers::LLVMModule>> res
+        = LCompilers::asr_to_llvm(*asr, diagnostics, e.get_context(),
+            e.get_target_config(), al, lpm, co, "", "", "", lm);
+    INFO(diagnostics.render2());
+    REQUIRE(res.ok);
+    e.opt(*res.result->m_m);
+    llvm::Function *fn = nullptr;
+    for (llvm::Function &f : *res.result->m_m) {
+        if (!f.isDeclaration() && f.getName() == "rev_dot") fn = &f;
+    }
+    REQUIRE(fn != nullptr);
+    bool vector_mul = false;
+    for (llvm::BasicBlock &block : *fn) {
+        for (llvm::Instruction &inst : block) {
+            if (inst.getOpcode() == llvm::Instruction::FMul
+                    && inst.getType()->isVectorTy()) {
+                vector_mul = true;
+            }
+        }
+    }
+    CHECK(!vector_mul);
+}
+
 TEST_CASE("LLVM --fast leaves a negative stride multiply off the fast path") {
     // ix = 1; if (inc < 0) ix = (1 - n)*inc + 1. The multiply is only
     // needed for a negative increment. --fast must not run it before

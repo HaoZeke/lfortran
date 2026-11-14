@@ -2131,12 +2131,37 @@ static bool keep_negative_stride_off_fast_path(llvm::Function &fn) {
     return true;
 }
 
+// The index of a load is `iv` plus a constant. A backward index
+// (`m - j`) or a runtime stride is left scalar: wrapping those in the
+// vector header made `basym` and `dwght` slower.
+static bool forward_unit_index(llvm::Value *ptr, llvm::PHINode *iv) {
+    auto *gep = llvm::dyn_cast<llvm::GetElementPtrInst>(ptr);
+    if (gep == nullptr) {
+        return false;
+    }
+    llvm::Value *idx = gep->getOperand(gep->getNumOperands() - 1);
+    while (auto *add = llvm::dyn_cast<llvm::BinaryOperator>(idx)) {
+        if (add->getOpcode() != llvm::Instruction::Add) {
+            return false;
+        }
+        if (llvm::isa<llvm::ConstantInt>(add->getOperand(1))) {
+            idx = add->getOperand(0);
+        } else if (llvm::isa<llvm::ConstantInt>(add->getOperand(0))) {
+            idx = add->getOperand(1);
+        } else {
+            return false;
+        }
+    }
+    return idx == iv;
+}
+
 // A strict `s = s + a*b` loop is not vectorized: the reduction is not
 // associative, and runtime unrolling is off. gfortran -O3 -march=native
 // multiplies a whole vector of products and adds those lanes into the
 // accumulator in order, which is the same rounding as the scalar loop.
 // `width` is 4 when the target has AVX and 2 otherwise. Only when the
-// fmul and fadd carry no fast-math flags.
+// fmul and fadd carry no fast-math flags, and both loads step one
+// element forward with the induction variable.
 static bool widen_strict_product_reduction(llvm::BasicBlock *loop,
         unsigned width) {
     if (loop == nullptr || loop->getTerminator() == nullptr) {
@@ -2207,8 +2232,14 @@ static bool widen_strict_product_reduction(llvm::BasicBlock *loop,
             || prod->getFastMathFlags().any() || !prod->getType()->isDoubleTy()) {
         return false;
     }
-    if (!llvm::isa<llvm::LoadInst>(prod->getOperand(0))
-            || !llvm::isa<llvm::LoadInst>(prod->getOperand(1))) {
+    auto *load0 = llvm::dyn_cast<llvm::LoadInst>(prod->getOperand(0));
+    auto *load1 = llvm::dyn_cast<llvm::LoadInst>(prod->getOperand(1));
+    if (load0 == nullptr || load1 == nullptr) {
+        return false;
+    }
+    if (!forward_unit_index(load0->getPointerOperand(), iv)
+            || (load0 != load1 && !forward_unit_index(
+                load1->getPointerOperand(), iv))) {
         return false;
     }
     llvm::Value *trip = nullptr;
