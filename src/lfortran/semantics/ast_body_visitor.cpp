@@ -1428,7 +1428,10 @@ public:
                     args.push_back(al, arg);
                     AST::SubroutineCall_t* subrout_call = AST::down_cast2<AST::SubroutineCall_t>(
                         AST::make_SubroutineCall_t(al, x.base.base.loc, 0, s2c(al, "newunit"), nullptr, 0, args.p, args.size(), nullptr, 0, nullptr, 0, nullptr));
+                    bool saved_lowering_open_newunit = lowering_open_newunit;
+                    lowering_open_newunit = true;
                     visit_SubroutineCall(*subrout_call);
+                    lowering_open_newunit = saved_lowering_open_newunit;
                     tmp_vec.push_back(tmp);
                 }
             } else if( m_arg_str == std::string("file") ) {

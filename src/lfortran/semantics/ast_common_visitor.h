@@ -2346,6 +2346,9 @@ public:
     // applies to the unit that has it and to its contained subprograms and
     // BLOCK constructs (F2018 C895).
     std::vector<bool> implicit_none_external_stack;
+    // Set while lowering `open(newunit=u)` to the runtime helper
+    // `call newunit(u)`. That call is not a procedure the user wrote.
+    bool lowering_open_newunit = false;
 
     static bool has_implicit_none_external(AST::decl_stmt_t **items,
             size_t n_items) {
@@ -2389,6 +2392,12 @@ public:
             ASR::symbol_t *sym, const Location &loc) {
         if (implicit_none_external_stack.empty()
                 || !implicit_none_external_stack.back()) {
+            return;
+        }
+        // `open(newunit=u)` is lowered to a call of the runtime helper.
+        // The user did not name a procedure, so `implicit none (external)`
+        // does not apply to that helper.
+        if (lowering_open_newunit) {
             return;
         }
         if (sym && ASRUtils::symbol_parent_symtab(sym)->parent != nullptr) {
