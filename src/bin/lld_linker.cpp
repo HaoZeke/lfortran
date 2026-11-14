@@ -410,6 +410,27 @@ void add_forwarded_linker_flags(ArgList &args, const std::vector<std::string> &f
     }
 }
 
+// Absolute path of the Fortran runtime. CMake keeps an absolute archive
+// from the verbose link line and passes that path when the C or C++
+// driver links a Fortran object. `-llfortran_runtime` is not found once
+// that directory has been classified as an implicit search path.
+static std::string runtime_library_path(const std::string &dir,
+        const std::string &runtime_lib, bool static_executable) {
+#ifdef __APPLE__
+    (void)static_executable;
+    return dir + "/lib" + runtime_lib + ".dylib";
+#else
+    // The shared runtime is not a path CMake records. The static archive
+    // is, so a C or C++ link of a Fortran object still finds it.
+    (void)static_executable;
+    std::string lib = runtime_lib;
+    if (lib.find("static") == std::string::npos) {
+        lib += "_static";
+    }
+    return dir + "/lib" + lib + ".a";
+#endif
+}
+
 #ifndef __APPLE__
 
 void add_lib_if_present(ArgList &args, const std::vector<std::string> &dirs,
@@ -586,7 +607,8 @@ int link_elf(
         }
     }
     add_forwarded_linker_flags(args, linker_flags);
-    args.add("-l" + runtime_lib);
+    args.add(runtime_library_path(runtime_library_dir, runtime_lib,
+        static_executable));
 
     if (openmp && !openmp_lib_dir.empty()) {
         args.add("-L" + openmp_lib_dir);
@@ -796,7 +818,8 @@ int link_macho(
     args.add("-rpath");
     args.add(runtime_library_dir);
     add_forwarded_linker_flags(args, linker_flags);
-    args.add("-l" + runtime_lib);
+    args.add(runtime_library_path(runtime_library_dir, runtime_lib,
+        /*static_executable=*/false));
     args.add("-lm");
     if (openmp && !openmp_lib_dir.empty()) {
         args.add("-L" + openmp_lib_dir);
