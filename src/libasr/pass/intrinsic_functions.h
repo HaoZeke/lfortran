@@ -6013,7 +6013,15 @@ namespace Cmplx {
         } else {
             m_args.push_back(al, args[2]);
         }
-        for( size_t i = 0; i < 1; i++ ) {
+        // `cmplx` is elemental. An array imaginary part with a scalar
+        // real part, as in `cmplx(0.0, theta)`, has an array result.
+        // Checking only the real part left that result scalar, so a
+        // nested elemental call evaluated the whole array inside one
+        // scalar complex constructor.
+        for( size_t i = 0; i < 2; i++ ) {
+            if (args[i] == nullptr) {
+                continue;
+            }
             ASR::ttype_t* type = ASRUtils::expr_type(args[i]);
             if (ASRUtils::is_array(type)) {
                 ASR::dimension_t* m_dims = nullptr;
