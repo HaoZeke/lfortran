@@ -814,6 +814,10 @@ public:
     llvm::DIScope *debug_current_scope;
     llvm::DIFile *debug_Unit;
 
+    // A pointer temporary associated with a simply contiguous section.
+    // The call passes that pointer, and an explicit-shape dummy reads the
+    // storage sequence that begins there, through the end of the base array.
+    std::map<ASR::symbol_t*, ASR::ArraySection_t*> contiguous_section_views;
     std::map<ASR::symbol_t*, std::map<SymbolTable*, llvm::Value*>> type2vtab;
     std::map<ASR::symbol_t*, std::map<SymbolTable*, std::vector<llvm::Value*>>> class2vtab;
     std::map<ASR::symbol_t*, llvm::Type*> type2vtabtype;
@@ -14321,6 +14325,12 @@ public:
     }
 
     void visit_Associate(const ASR::Associate_t& x) {
+        if (ASR::is_a<ASR::ArraySection_t>(*x.m_value) &&
+                ASR::is_a<ASR::Var_t>(*x.m_target) &&
+                ASRUtils::is_simply_contiguous(x.m_value)) {
+            contiguous_section_views[ASR::down_cast<ASR::Var_t>(x.m_target)->m_v] =
+                ASR::down_cast<ASR::ArraySection_t>(x.m_value);
+        }
         if (x.m_form != ASR::pointer_bounds_formType::NoPointerBounds) {
             handle_pointer_section_target(x);
         } else if( ASR::is_a<ASR::ArraySection_t>(*x.m_value) ) {
@@ -30023,6 +30033,83 @@ public:
         }
     }
 
+    // Elements of `section` from its first element through the end of the
+    // base array. A simply contiguous section occupies a contiguous span of
+    // that sequence, and the elements after the section are the rest of the
+    // base array. An explicit-shape dummy is associated with that sequence
+    // (F2023 15.5.2.12), so `data(:, i)` of `data(m, n)` can supply `a(m, k)`
+    // for a `k` that runs into the following columns.
+    llvm::Value* elements_from_section_through_end(ASR::ArraySection_t* section) {
+        llvm::Type* i64 = llvm::Type::getInt64Ty(context);
+        ASR::expr_t* base = section->m_v;
+        ASR::ttype_t* base_type = ASRUtils::expr_type(base);
+        ASR::dimension_t* dims = nullptr;
+        int n_dims = checked_integer_cast<int>(
+            ASRUtils::extract_dimensions_from_ttype(base_type, dims));
+        ASR::array_physical_typeType phys = ASRUtils::extract_physical_type(base_type);
+        llvm::Value* base_desc = nullptr;
+        llvm::Type* base_desc_type = nullptr;
+        if (phys == ASR::array_physical_typeType::DescriptorArray) {
+            int64_t ptr_loads_copy = ptr_loads;
+            ptr_loads = 1 - !LLVM::is_llvm_pointer(*base_type);
+            visit_expr_wrapper(base);
+            ptr_loads = ptr_loads_copy;
+            base_desc = tmp;
+            base_desc_type = llvm_utils->get_type_from_ttype_t_util(base,
+                ASRUtils::type_get_past_allocatable(
+                    ASRUtils::type_get_past_pointer(base_type)), module.get());
+        }
+        auto eval64 = [&](ASR::expr_t* e) -> llvm::Value* {
+            visit_expr_wrapper(e, true);
+            return builder->CreateSExtOrTrunc(tmp, i64);
+        };
+        llvm::Value* offset = llvm::ConstantInt::get(i64, 0);
+        llvm::Value* stride = llvm::ConstantInt::get(i64, 1);
+        llvm::Value* total = llvm::ConstantInt::get(i64, 1);
+        for (int i = 0; i < n_dims; i++) {
+            llvm::Value* lb;
+            llvm::Value* extent;
+            if (dims[i].m_start) {
+                lb = eval64(dims[i].m_start);
+            } else if (base_desc) {
+                llvm::Value* dim_des_arr = arr_descr->get_pointer_to_dimension_descriptor_array(
+                    base_desc_type, base_desc);
+                llvm::Value* dim_des = arr_descr->get_pointer_to_dimension_descriptor(
+                    dim_des_arr, llvm::ConstantInt::get(llvm::Type::getInt32Ty(context), i));
+                lb = builder->CreateSExtOrTrunc(arr_descr->get_lower_bound(dim_des, true), i64);
+            } else {
+                lb = llvm::ConstantInt::get(i64, 1);
+            }
+            if (dims[i].m_length) {
+                extent = eval64(dims[i].m_length);
+            } else if (base_desc) {
+                extent = arr_descr->get_array_size(base_desc_type, base_desc,
+                    llvm::ConstantInt::get(llvm::Type::getInt32Ty(context), i + 1), 8);
+            } else {
+                extent = llvm::ConstantInt::get(i64, 1);
+            }
+            llvm::Value* start = lb;
+            if (i < (int) section->n_args) {
+                ASR::array_index_t& idx = section->m_args[i];
+                bool scalar = idx.m_left == nullptr && idx.m_step == nullptr &&
+                    idx.m_right != nullptr;
+                if (scalar) {
+                    start = eval64(idx.m_right);
+                } else if (idx.m_left) {
+                    start = eval64(idx.m_left);
+                }
+            }
+            offset = builder->CreateAdd(offset,
+                builder->CreateMul(builder->CreateSub(start, lb), stride));
+            stride = builder->CreateMul(stride, extent);
+            total = builder->CreateMul(total, extent);
+        }
+        llvm::Value* remaining = builder->CreateSub(total, offset);
+        llvm::Value* zero = llvm::ConstantInt::get(i64, 0);
+        return builder->CreateSelect(
+            builder->CreateICmpSLT(remaining, zero), zero, remaining);
+    }
+
     // Emit the runtime check for an actual argument associated with a dummy
     // that declares an extent for at least one dimension (explicit-shape, or
     // assumed-size such as `a(n, *)`). The actual argument is associated with
@@ -30037,6 +30124,25 @@ public:
             ASR::expr_t* arg_expr, llvm::Value* actual_size,
             llvm::Value* dummy_size, size_t arg_index,
             bool dummy_has_deferred_extent) {
+        // A simply contiguous section is passed as a pointer into its base
+        // array. The sequence available to the dummy runs from the section's
+        // first element to the end of that array, which is longer than the
+        // section (`call kernel(n, data(:, i))` for `a(chunk, n)`).
+        ASR::expr_t* actual = ASRUtils::get_past_array_physical_cast(arg_expr);
+        ASR::ArraySection_t* section = nullptr;
+        if (ASR::is_a<ASR::ArraySection_t>(*actual) &&
+                ASRUtils::is_simply_contiguous(actual)) {
+            section = ASR::down_cast<ASR::ArraySection_t>(actual);
+        } else if (ASR::is_a<ASR::Var_t>(*actual)) {
+            auto it = contiguous_section_views.find(
+                ASR::down_cast<ASR::Var_t>(actual)->m_v);
+            if (it != contiguous_section_views.end()) {
+                section = it->second;
+            }
+        }
+        if (section) {
+            actual_size = elements_from_section_through_end(section);
+        }
         // An assumed-size dummy has exactly the actual argument's element
         // count, so a zero-element actual gives a zero-size dummy even when
         // the dummy declares other extents. Only a nonempty actual must not be
