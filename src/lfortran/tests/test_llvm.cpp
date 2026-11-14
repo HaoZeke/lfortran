@@ -1866,6 +1866,52 @@ end subroutine
     CHECK(unit_stride);
 }
 
+TEST_CASE("LLVM lowers a variable real power of an integer inline") {
+    // b**e for a variable e must not call __powidf2. The square-and-multiply
+    // is in the function, with the reciprocal on the negative side.
+    std::string source = R"(subroutine pow_var(b, e, r)
+real(8), intent(in) :: b
+integer, intent(in) :: e
+real(8), intent(out) :: r
+r = b**e
+end subroutine
+)";
+    inspect_definitions(source, false, {{"pow_var", "pow_var"}},
+        [&](const std::string &, llvm::Function &fn) {
+            bool called_pow = false;
+            bool multiplied = false;
+            bool negative_branch = false;
+            for (llvm::BasicBlock &block : fn) {
+                for (llvm::Instruction &inst : block) {
+                    if (inst.getOpcode() == llvm::Instruction::FMul) {
+                        multiplied = true;
+                    }
+                    auto *br = llvm::dyn_cast<llvm::BranchInst>(&inst);
+                    if (br != nullptr && br->isConditional()) {
+                        auto *cmp = llvm::dyn_cast<llvm::ICmpInst>(br->getCondition());
+                        if (cmp != nullptr
+                                && cmp->getPredicate() == llvm::ICmpInst::ICMP_SLT) {
+                            negative_branch = true;
+                        }
+                    }
+                    auto *call = llvm::dyn_cast<llvm::CallInst>(&inst);
+                    if (call == nullptr) continue;
+                    llvm::Function *callee = call->getCalledFunction();
+                    if (callee == nullptr) continue;
+                    llvm::StringRef name = callee->getName();
+                    if (name.find("powi") != llvm::StringRef::npos
+                            || name.find("powidf") != llvm::StringRef::npos
+                            || name.find("powisf") != llvm::StringRef::npos) {
+                        called_pow = true;
+                    }
+                }
+            }
+            CHECK(multiplied);
+            CHECK(negative_branch);
+            CHECK(!called_pow);
+        });
+}
+
 TEST_CASE("LLVM --fast leaves a negative stride multiply off the fast path") {
     // ix = 1; if (inc < 0) ix = (1 - n)*inc + 1. The multiply is only
     // needed for a negative increment. --fast must not run it before

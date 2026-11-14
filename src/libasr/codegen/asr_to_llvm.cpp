@@ -20358,6 +20358,73 @@ public:
                     // `long double` != fp128 (Apple ARM64), LLVM lowers those to
                     // `powl`, which silently truncates to 64-bit precision and returns
                     // garbage. Route to our portable runtime instead.
+                    // A non-constant integer exponent of real(4) or real(8) is
+                    // square-and-multiply here. llvm.powi lowers to __powidf2,
+                    // and the helper the linker picks is slower than this loop
+                    // for the exponents spmpar uses. The order matches that
+                    // helper: result starts at 1, an odd bit multiplies the
+                    // current square in, then the base is squared. A negative
+                    // exponent reciprocates at the end.
+                    if (ASRUtils::is_integer(*ASRUtils::expr_type(x.m_right))
+                            && return_kind != 16
+                            && !base_type->isX86_FP80Ty()) {
+                        llvm::Type *i32 = llvm::Type::getInt32Ty(context);
+                        llvm::Value *exp = llvm_utils->convert_kind(right_val, i32);
+                        llvm::Value *zero = llvm::ConstantInt::get(i32, 0);
+                        llvm::Value *one_i = llvm::ConstantInt::get(i32, 1);
+                        llvm::Value *is_neg = builder->CreateICmpSLT(exp, zero, "powi.neg");
+                        llvm::Value *mag = builder->CreateSelect(is_neg,
+                            builder->CreateSub(zero, exp), exp, "powi.mag");
+                        llvm::Value *one_fp = llvm::ConstantFP::get(left_val->getType(), 1.0);
+                        llvm::Function *fn = builder->GetInsertBlock()->getParent();
+                        llvm::BasicBlock *head = builder->GetInsertBlock();
+                        llvm::BasicBlock *loop_bb = llvm::BasicBlock::Create(
+                            context, "powi.loop", fn);
+                        llvm::BasicBlock *after = llvm::BasicBlock::Create(
+                            context, "powi.end", fn);
+                        builder->CreateBr(loop_bb);
+                        builder->SetInsertPoint(loop_bb);
+                        llvm::PHINode *n_phi = builder->CreatePHI(i32, 2, "powi.n");
+                        llvm::PHINode *r_phi = builder->CreatePHI(
+                            left_val->getType(), 2, "powi.r");
+                        llvm::PHINode *b_phi = builder->CreatePHI(
+                            left_val->getType(), 2, "powi.b");
+                        n_phi->addIncoming(mag, head);
+                        r_phi->addIncoming(one_fp, head);
+                        b_phi->addIncoming(left_val, head);
+                        llvm::Value *odd = builder->CreateICmpNE(
+                            builder->CreateAnd(n_phi, one_i), zero);
+                        llvm::Value *r_next = builder->CreateSelect(odd,
+                            builder->CreateFMul(r_phi, b_phi), r_phi);
+                        llvm::Value *n_next = builder->CreateLShr(n_phi, one_i);
+                        llvm::Value *done = builder->CreateICmpEQ(n_next, zero);
+                        llvm::Value *b_next = builder->CreateFMul(b_phi, b_phi);
+                        llvm::BasicBlock *sign_bb = llvm::BasicBlock::Create(
+                            context, "powi.sign", fn);
+                        llvm::BasicBlock *neg_bb = llvm::BasicBlock::Create(
+                            context, "powi.neg", fn);
+                        llvm::BasicBlock *pos_bb = llvm::BasicBlock::Create(
+                            context, "powi.pos", fn);
+                        builder->CreateCondBr(done, sign_bb, loop_bb);
+                        n_phi->addIncoming(n_next, loop_bb);
+                        r_phi->addIncoming(r_next, loop_bb);
+                        b_phi->addIncoming(b_next, loop_bb);
+                        builder->SetInsertPoint(sign_bb);
+                        // Positive exponents skip the division. spmpar uses both.
+                        builder->CreateCondBr(is_neg, neg_bb, pos_bb);
+                        builder->SetInsertPoint(neg_bb);
+                        llvm::Value *recip = builder->CreateFDiv(one_fp, r_next);
+                        builder->CreateBr(after);
+                        builder->SetInsertPoint(pos_bb);
+                        builder->CreateBr(after);
+                        builder->SetInsertPoint(after);
+                        llvm::PHINode *out = builder->CreatePHI(
+                            left_val->getType(), 2, "powi.out");
+                        out->addIncoming(recip, neg_bb);
+                        out->addIncoming(r_next, pos_bb);
+                        tmp = out;
+                        break;
+                    }
                     if(ASRUtils::is_integer(*ASRUtils::expr_type(x.m_right))) {
                         if (return_kind == 16) {
                             // No integer-exponent fp128 runtime; promote the
