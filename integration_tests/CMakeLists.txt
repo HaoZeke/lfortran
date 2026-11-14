@@ -7968,6 +7968,7 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR MATCHES "x86_6
     RUN(NAME real80_complex_real_01 LABELS gfortran llvm)
     RUN(NAME ieee_value_real80_01 LABELS gfortran llvm)
     RUN(NAME ieee_is_nan_real80_01 LABELS gfortran llvm)
+    RUN(NAME ieee_is_nan_fast_01 LABELS gfortran llvm EXTRA_ARGS --fast)
     RUN(NAME complex10_parameter_01 LABELS gfortran llvm)
     RUN(NAME real80_inquiry_01 LABELS gfortran llvm)
     RUN(NAME real80_acos_01 LABELS gfortran llvm)

@@ -1026,14 +1026,27 @@ module lfortran_intrinsic_ieee_arithmetic
     elemental function xpieee_is_nan(x) result(r)
         real(10), intent(in) :: x
         logical :: r
-        r = x /= x
+        ! `x /= x` is folded to false under `--fast`. An x86 extended value
+        ! is a NaN when its exponent is all ones and its significand is not
+        ! the infinity pattern.
+        integer(8) :: bits(2)
+        bits = transfer(x, bits)
+        r = iand(bits(2), int(z'7FFF', 8)) == int(z'7FFF', 8) .and. &
+            bits(1) /= int(z'8000000000000000', 8)
     end function
 
     elemental function qpieee_is_nan(x) result(r)
         use iso_fortran_env, only: real128
         real(real128), intent(in) :: x
         logical :: r
-        r = x /= x
+        ! `x /= x` is folded to false under `--fast`. A binary128 value is
+        ! a NaN when its exponent is all ones and its fraction is not zero.
+        integer(8) :: bits(2)
+        bits = transfer(x, bits)
+        r = iand(bits(2), int(z'7FFF000000000000', 8)) == &
+                int(z'7FFF000000000000', 8) .and. &
+            (bits(1) /= 0_8 .or. &
+                iand(bits(2), int(z'0000FFFFFFFFFFFF', 8)) /= 0_8)
     end function
 
     elemental function qpieee_is_finite(x) result(r)
