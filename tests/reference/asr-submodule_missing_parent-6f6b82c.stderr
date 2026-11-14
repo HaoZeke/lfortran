@@ -1,0 +1,5 @@
+semantic error: Module 'no_such_parent' modfile was not found
+ --> tests/errors/submodule_missing_parent.f90:1:1
+  |
+1 | submodule (no_such_parent) child
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ 

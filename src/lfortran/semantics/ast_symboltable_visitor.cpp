@@ -1003,8 +1003,15 @@ public:
         bool host_only_object = compiler_options.separate_compilation
             && gpu_device_selected(compiler_options.po) == GpuDevice::None;
         if( x.class_type == AST::modType::Submodule ) {
+            // The node's location runs through `end submodule`. A missing
+            // parent is named in the opening statement, as a missing module
+            // in a USE statement is labelled on that statement.
+            Location parent_loc = x.base.base.loc;
+            if (x.m_start_name) {
+                parent_loc.last = x.m_start_name->last;
+            }
             ASR::symbol_t* submod_parent = (ASR::symbol_t*)(ASRUtils::load_module(al, global_scope,
-                                                parent_name, x.base.base.loc, false, loaded_submodules,
+                                                parent_name, parent_loc, false, loaded_submodules,
                                                 compiler_options.po, !diag.has_error(),
                                                 [&](const std::string &msg, const Location &loc) {
                                                     diag.add(diag::Diagnostic(

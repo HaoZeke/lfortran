@@ -462,6 +462,13 @@ ast = true
 filename = "errors/subroutine5.f90"
 asr = true
 
+# A missing parent of a submodule is named in the opening statement.
+# The diagnostic must label that statement, not the whole file through
+# `end submodule`.
+[[test]]
+filename = "errors/submodule_missing_parent.f90"
+asr = true
+
 [[test]]
 filename = "errors/dim_assgn_test.f90"
 asr = true

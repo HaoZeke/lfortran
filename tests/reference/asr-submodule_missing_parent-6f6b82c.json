@@ -1,0 +1,13 @@
+{
+    "basename": "asr-submodule_missing_parent-6f6b82c",
+    "cmd": "lfortran --show-asr --no-color {infile} -o {outfile}",
+    "infile": "tests/errors/submodule_missing_parent.f90",
+    "infile_hash": "1794a01a7323f83ff65e3970e9b301b74c951d955a761f8891782e95",
+    "outfile": null,
+    "outfile_hash": null,
+    "stdout": null,
+    "stdout_hash": null,
+    "stderr": "asr-submodule_missing_parent-6f6b82c.stderr",
+    "stderr_hash": "59069ffb34abc5bfeb6224d9b091bae324e67eeaf88e6ac6c3e049b2",
+    "returncode": 2
+}
