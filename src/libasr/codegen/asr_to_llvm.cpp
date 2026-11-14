@@ -20117,7 +20117,16 @@ public:
 
                     llvm::Function *fn_pow = LLVM::get_or_declare_function(
                         *module, func_name, base_type, { base_type, exponent_type });
-                    tmp = builder->CreateCall(fn_pow, {left_val, right_val});
+                    // A fast-math llvm.pow is rewritten to exp2, so 10.0**2.0
+                    // is no longer 100 when the exponent is not a constant.
+                    // This call stays correctly rounded. Other arithmetic
+                    // keeps the fast-math flags.
+                    llvm::CallInst *pow_call = builder->CreateCall(
+                        fn_pow, {left_val, right_val});
+                    // setFastMathFlags ORs the flags in. The builder already
+                    // put every fast-math flag on the call, so replace them.
+                    pow_call->copyFastMathFlags(llvm::FastMathFlags());
+                    tmp = pow_call;
                 }
                 break;
             };
