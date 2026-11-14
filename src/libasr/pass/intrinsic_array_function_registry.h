@@ -6931,9 +6931,12 @@ namespace Pack {
             ret_type = ASRUtils::duplicate_type(al, ret_type, &result_dims, ASR::array_physical_typeType::DescriptorArray, true);
             // The extent is `count(mask)`. Wrapping this in an allocatable
             // with empty bounds drops that extent, and the result descriptor
-            // passed to `pack` is then never allocated.
-            if (is_type_allocatable) {
-                ret_type = ASRUtils::type_get_past_allocatable(ret_type);
+            // passed to `pack` is then never allocated. A pointer array is
+            // not allocatable, but its result must still be an owned
+            // descriptor: leaving the pointer attribute makes `pack` write
+            // through the pointer's data address, which is null.
+            if (is_type_allocatable || ASRUtils::is_pointer(expr_type(array))) {
+                ret_type = ASRUtils::type_get_past_allocatable_pointer(ret_type);
                 is_type_allocatable = false;
             }
         }
