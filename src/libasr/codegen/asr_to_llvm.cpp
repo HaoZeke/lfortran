@@ -30129,8 +30129,9 @@ public:
             // elements. The callee tests the pointer; a size or allocation
             // check here would reject that absence.
             bool formal_optional = false;
+            ASR::Variable_t* formal = nullptr;
             if (function && i < function->n_args) {
-                ASR::Variable_t* formal = ASRUtils::expr_to_variable_or_null(function->m_args[i]);
+                formal = ASRUtils::expr_to_variable_or_null(function->m_args[i]);
                 formal_optional = formal && formal->m_presence == ASR::presenceType::Optional;
             }
             ASR::ttype_t* arg_expr_type = ASRUtils::expr_type(x.m_args[i].m_value);
@@ -30211,10 +30212,31 @@ public:
                             ASR::down_cast<ASR::Variable_t>(presence_sym)->m_presence ==
                                 ASR::presenceType::Optional;
                     }
+                    // An assumed-shape dummy is a descriptor. GFortran accepts an
+                    // unallocated allocatable actual and the callee simply does
+                    // not reference it. Aborting here rejects that call.
+                    bool formal_assumed_shape = formal &&
+                        ASRUtils::is_array(formal->m_type) &&
+                        !ASRUtils::is_allocatable(formal->m_type) &&
+                        !ASRUtils::is_pointer(formal->m_type) &&
+                        ASRUtils::has_deferred_dimension_bound(formal->m_type);
+                    // Passing an unallocated allocatable array variable is how
+                    // a caller omits storage the callee does not reference.
+                    // GFortran accepts that. The check remains for every other
+                    // unallocated actual.
+                    bool allocatable_array_variable = false;
+                    if (ASR::is_a<ASR::Var_t>(*arr_cast->m_arg)) {
+                        ASR::Variable_t* actual_var = ASRUtils::expr_to_variable_or_null(
+                            arr_cast->m_arg);
+                        allocatable_array_variable = actual_var &&
+                            ASRUtils::is_allocatable(actual_var->m_type) &&
+                            ASRUtils::is_array(actual_var->m_type);
+                    }
                     if (!implicit_cast && !optional_actual && !formal_optional && is_return_value) {
                         generate_unallocated_array_runtime_error(
                             builder->CreateNot(is_allocated), arr_cast->m_arg);
-                    } else if (!implicit_cast && !optional_actual && !formal_optional) {
+                    } else if (!implicit_cast && !optional_actual && !formal_optional &&
+                            !formal_assumed_shape && !allocatable_array_variable) {
                         llvm_utils->generate_runtime_error(builder->CreateNot(is_allocated),
                                 "Argument %d of subroutine %s is unallocated.",
                                 {LLVMUtils::RuntimeLabel("This is unallocated", {arg_expr->base.loc}, {})},
@@ -30301,7 +30323,8 @@ public:
                                 pointer_size);
                         builder->CreateBr(mergeBB);
                         start_new_block(mergeBB);
-                    } else if (!formal_optional && ASRUtils::has_explicit_dimension_bounds(arr_cast->m_type)) {
+                    } else if (!formal_optional &&
+                            ASRUtils::has_explicit_dimension_bounds(arr_cast->m_type)) {
                         emit_sequence_assoc_size_check(m_name, arg_expr,
                             arr_descr->get_array_size(arr_type, arg, nullptr, 8),
                             get_array_size_from_asr_type(arr_cast->m_type), i,
