@@ -491,13 +491,17 @@ public:
                     ASR::RealConstant_t *r = ASR::down_cast<ASR::RealConstant_t>(value);
                     // kind=10 and kind=16 m_r is a pointer to the value's bytes
                     int src_kind = ASRUtils::extract_kind_from_ttype_t(r->m_type);
-                    if (src_kind == 16 && ASRUtils::extract_kind_from_ttype_t(dest_type2) == 16) {
+                    int dest_kind = ASRUtils::extract_kind_from_ttype_t(dest_type2);
+                    if (src_kind == 16 && dest_kind == 16) {
                       // a ComplexConstant cannot hold a complex(16) value
                       value = ASRUtils::make_complex16_from_real16(al, a_loc, value, dest_type2);
+                    } else if (src_kind == 10 || dest_kind == 10) {
+                      // A ComplexConstant stores each part in a double.
+                      // Folding a long double through it drops the extra
+                      // significand bits. The runtime cast keeps them.
+                      value = nullptr;
                     } else {
-                    double rval = src_kind == 10
-                        ? ASRUtils::real_constant_get_r10(r)
-                        : src_kind == 16
+                    double rval = src_kind == 16
                         ? lf_f128_to_double(ASRUtils::real_constant_get_r16(r))
                         : r->m_r;
                     value = (ASR::expr_t *)ASR::make_ComplexConstant_t(al, a_loc,

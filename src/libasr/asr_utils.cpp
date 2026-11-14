@@ -4821,13 +4821,16 @@ ASR::asr_t* make_Cast_t_value(Allocator &al, const Location &a_loc,
             ASR::RealConstant_t* rc = ASR::down_cast<ASR::RealConstant_t>(
                                   ASRUtils::expr_value(a_arg));
             int src_kind = ASRUtils::extract_kind_from_ttype_t(rc->m_type);
-            if (src_kind == 16 && ASRUtils::extract_kind_from_ttype_t(a_type) == 16) {
+            int dest_kind = ASRUtils::extract_kind_from_ttype_t(a_type);
+            if (src_kind == 16 && dest_kind == 16) {
                 value = make_complex16_from_real16(al, a_loc, &rc->base, a_type);
-            } else if (src_kind != 16) {
-                double re = src_kind == 10
-                    ? ASRUtils::real_constant_get_r10(rc) : rc->m_r;
+            } else if (src_kind != 16 && src_kind != 10 && dest_kind != 10) {
+                // A kind=10 complex constant stores its parts in `double`.
+                // Folding a long double through that drops the extra
+                // significand bits (`0.01_xdp` becomes the nearest double).
+                // The runtime cast copies the full value.
                 value = ASR::down_cast<ASR::expr_t>(ASR::make_ComplexConstant_t(
-                            al, a_loc, re, 0, a_type));
+                            al, a_loc, rc->m_r, 0, a_type));
             }
         } else if (a_kind == ASR::cast_kindType::IntegerToReal) {
             // TODO: Clashes with the pow functions
