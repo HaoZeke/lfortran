@@ -2469,15 +2469,23 @@ lf_float128 lf_float128_from_str(const char *s) {
     int  int_len  = 0;
     int  frac_len = 0;
 
+    int extra_int = 0;
     while (*s >= '0' && *s <= '9' && int_len < 99)  intbuf[int_len++]  = *s++;
+    /* Digits past the buffer still move the exponent, and must be skipped
+     * so the exponent letter after a long fraction is not left unread. */
+    while (*s >= '0' && *s <= '9') { extra_int++; s++; }
     if (*s == '.') {
         s++;
         while (*s >= '0' && *s <= '9' && frac_len < 99) fracbuf[frac_len++] = *s++;
+        /* Low digits of a long fraction are past binary128's precision.
+         * Skip them so the exponent letter is still read. */
+        while (*s >= '0' && *s <= '9') s++;
     }
 
     /* Exponent */
     int32_t dec_exp = 0;
-    if (*s == 'e' || *s == 'E' || *s == 'd' || *s == 'D') {
+    if (*s == 'e' || *s == 'E' || *s == 'd' || *s == 'D' ||
+            *s == 'q' || *s == 'Q') {
         s++;
         int esign = 1;
         if (*s == '-') { esign = -1; s++; }
@@ -2490,8 +2498,13 @@ lf_float128 lf_float128_from_str(const char *s) {
     /* Combine: number = intbuf.fracbuf * 10^dec_exp
      * Effective exponent after incorporating fracbuf length:
      *   value = (intbuf_as_int * 10^frac_len + fracbuf_as_int) * 10^(dec_exp - frac_len)
+     * Integer digits that did not fit are the low digits of a longer
+     * integer, so each one multiplies the kept prefix by ten. Fraction
+     * digits that did not fit are low digits of the significand: keeping
+     * only the leading digits already places them, so they are skipped
+     * only to reach the exponent letter.
      */
-    int32_t eff_exp = dec_exp - frac_len;
+    int32_t eff_exp = dec_exp + extra_int - frac_len;
 
     /* Build the integer significand from intbuf+fracbuf using big integers */
     Big sig;

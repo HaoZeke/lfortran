@@ -14515,11 +14515,13 @@ static const char *lf_scan_f128_special(const char *q)
 }
 
 // Reading binary128 values: the token is parsed with lf_float128_from_str.
-// A numeric token has at most LF_F128_TOKEN_MAX characters (binary128 has 36
-// significant digits, so this leaves room for leading zeros and an exponent).
-// Longer tokens are rejected instead of being truncated. The buffers that
-// collect a token hold one more character, so that a longer token is seen.
-enum { LF_F128_TOKEN_MAX = 99, LF_F128_TOKEN_BUF = LF_F128_TOKEN_MAX + 2 };
+// A numeric token has at most LF_F128_TOKEN_MAX characters. Binary128 needs
+// 36 significant digits; the limit is larger so a list-directed value with
+// extra digits and an exponent, such as a 100-digit fraction followed by
+// `E-44`, is still one token. Longer tokens are rejected instead of being
+// truncated. The buffers that collect a token hold one more character, so
+// that a longer token is seen.
+enum { LF_F128_TOKEN_MAX = 256, LF_F128_TOKEN_BUF = LF_F128_TOKEN_MAX + 2 };
 
 // Parse the number at the start of s into *val and set *endptr past it.
 // Returns false (with *endptr == s) if there is no number or it is too long.
