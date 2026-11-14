@@ -4617,12 +4617,26 @@ public:
 
     void generate_MinMax(ASR::expr_t** m_args, size_t n_args, bool is_max) {
         LCOMPILERS_ASSERT(n_args >= 2);
-        this->visit_expr_wrapper(m_args[0], true);
-        llvm::Value *result = tmp;
+        // A scalar pointer argument, such as an associate name used as a
+        // DO loop bound, can still be the pointer here. Load it so the
+        // comparison is between values.
+        auto load_minmax_arg = [&](ASR::expr_t* expr) {
+            this->visit_expr_wrapper(expr, true);
+            llvm::Value* value = tmp;
+            ASR::ttype_t* type = ASRUtils::type_get_past_pointer(
+                ASRUtils::expr_type(expr));
+            if (value->getType()->isPointerTy() && !ASRUtils::is_array(type)
+                    && !ASRUtils::is_character(*type)) {
+                value = llvm_utils->CreateLoad2(
+                    llvm_utils->get_type_from_ttype_t_util(expr, type,
+                        module.get()), value);
+            }
+            return value;
+        };
+        llvm::Value *result = load_minmax_arg(m_args[0]);
         llvm::Type *val_type = result->getType();
         for (size_t i = 1; i < n_args; i++) {
-            this->visit_expr_wrapper(m_args[i], true);
-            llvm::Value *arg = tmp;
+            llvm::Value *arg = load_minmax_arg(m_args[i]);
             if (val_type->isFloatingPointTy()) {
                 // Use ordered comparison for Fortran-compatible NaN propagation
                 // If either operand is NaN, comparison returns false, preserving result
