@@ -10357,6 +10357,28 @@ public:
             && is_static_save_initial_value(v);
     }
 
+    // An integer array constant cast to `complex(10)` or `complex(16)` is not
+    // a byte copy: each element becomes (real=n, imag=0). A memcpy leaves the
+    // imaginary part unset, and a scalar `sitofp` of the array address stores
+    // that address as the first real part.
+    void store_int_array_as_complex(llvm::Value* src, llvm::Value* dest,
+            llvm::Type* dest_array_type, int src_kind, int dest_kind,
+            int64_t n, bool is_volatile) {
+        llvm::Type* src_ty = llvm_utils->getIntType(src_kind);
+        llvm::Type* fp_ty = llvm_utils->getFPType(dest_kind);
+        llvm::Type* cplx_ty = llvm_utils->getComplexType(dest_kind);
+        llvm::Value* zero = llvm::ConstantFP::get(fp_ty, 0.0);
+        llvm::Value* dest0 = llvm_utils->create_gep2(dest_array_type, dest, 0);
+        for (int64_t i = 0; i < n; i++) {
+            llvm::Value* idx = llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), i);
+            llvm::Value* src_i = llvm_utils->CreateLoad2(src_ty,
+                llvm_utils->create_ptr_gep2(src_ty, src, idx));
+            llvm::Value* re = builder->CreateSIToFP(src_i, fp_ty);
+            builder->CreateStore(complex_from_floats(re, zero, cplx_ty),
+                llvm_utils->create_ptr_gep2(cplx_ty, dest0, idx), is_volatile);
+        }
+    }
+
     void set_VariableInital_value(ASR::Variable_t* v, llvm::Value* target_var){
         ASR::expr_t* initial_expr = v->m_value ? v->m_value : v->m_symbolic_value;
         // A struct array broadcast that reaches here is one the `global_init`
@@ -10374,6 +10396,32 @@ public:
                 get_struct_array_constant(initial_expr),
                 target_var, v->m_type_declaration, v->m_type, v->m_is_volatile);
             return;
+        }
+        if (ASRUtils::is_array(v->m_type) &&
+                ASRUtils::extract_physical_type(v->m_type) ==
+                    ASR::array_physical_typeType::FixedSizeArray &&
+                v->m_symbolic_value &&
+                ASR::is_a<ASR::Cast_t>(*v->m_symbolic_value)) {
+            ASR::Cast_t* cst = ASR::down_cast<ASR::Cast_t>(v->m_symbolic_value);
+            if (cst->m_kind == ASR::cast_kindType::IntegerToComplex &&
+                    ASRUtils::is_array(ASRUtils::expr_type(cst->m_arg)) &&
+                    ASRUtils::is_integer(*ASRUtils::extract_type(
+                        ASRUtils::expr_type(cst->m_arg))) &&
+                    ASRUtils::is_complex(*ASRUtils::extract_type(v->m_type))) {
+                int64_t n = ASRUtils::get_fixed_size_of_array(v->m_type);
+                int64_t saved_loads = ptr_loads;
+                ptr_loads = 0;
+                this->visit_expr_wrapper(cst->m_arg, true);
+                ptr_loads = saved_loads;
+                llvm::Type* dest_llvm = llvm_utils->get_type_from_ttype_t_util(
+                    v->m_type, v->m_type_declaration, module.get());
+                store_int_array_as_complex(tmp, target_var, dest_llvm,
+                    ASRUtils::extract_kind_from_ttype_t(ASRUtils::extract_type(
+                        ASRUtils::expr_type(cst->m_arg))),
+                    ASRUtils::extract_kind_from_ttype_t(ASRUtils::extract_type(v->m_type)),
+                    n, v->m_is_volatile);
+                return;
+            }
         }
         bool pointer_null_array_init = has_pointer_null_array_initializer(v);
         if (pointer_null_array_init && ASRUtils::is_array(v->m_type) &&
