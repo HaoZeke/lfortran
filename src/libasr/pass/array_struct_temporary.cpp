@@ -5436,15 +5436,27 @@ class ReplaceExprWithTemporary: public ASR::BaseExprReplacer<ReplaceExprWithTemp
             std::pair<ASR::expr_t*, targetType>& target_info = exprs_with_target[*current_expr];
             ASR::expr_t* target = target_info.first; targetType target_Type = target_info.second;
             ASR::expr_t* underlying_target = ASRUtils::get_past_array_physical_cast(target);
+            // `pack` is lowered to a subroutine that stores into this
+            // variable. An allocatable variable has no storage until the
+            // assignment gives it the shape of the packed result
+            // (F2003 7.4.1.3). `--realloc-lhs-arrays` asks for that for
+            // other expressions; `pack` needs it so the result buffer exists.
+            bool allocate_into_target = realloc_lhs;
+            if (!allocate_into_target &&
+                    ASR::is_a<ASR::IntrinsicArrayFunction_t>(**current_expr) &&
+                    ASR::down_cast<ASR::IntrinsicArrayFunction_t>(*current_expr)->m_arr_intrinsic_id ==
+                        static_cast<int64_t>(ASRUtils::IntrinsicArrayFunctions::Pack)) {
+                allocate_into_target = true;
+            }
             if( underlying_target != target &&
                 ASRUtils::is_allocatable(ASRUtils::expr_type(underlying_target)) &&
                 target_Type == targetType::OriginalTarget &&
-                realloc_lhs ) {
+                allocate_into_target ) {
                 insert_allocate_stmt_for_array(al, underlying_target, *current_expr,
                                                current_body, target, true);
             } else if( ASRUtils::is_allocatable(ASRUtils::expr_type(target)) &&
                 target_Type == targetType::OriginalTarget &&
-                realloc_lhs ) {
+                allocate_into_target ) {
                 insert_allocate_stmt_for_array(al, target, *current_expr,
                                                current_body, nullptr, true);
             }
