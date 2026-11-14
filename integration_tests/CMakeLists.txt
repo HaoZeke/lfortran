@@ -7996,6 +7996,7 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR MATCHES "x86_6
     RUN(NAME list_read_quad_01 LABELS gfortran llvm)
     RUN(NAME real_to_complex_xdp_01 LABELS gfortran llvm)
     RUN(NAME cmplx_array_to_xdp_01 LABELS gfortran llvm)
+    RUN(NAME matmul_extended_01 LABELS gfortran llvm)
 elseif (APPLE AND CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64")
     # GFortran has no real(10) on arm64. real80_int_to_real_01 is left out
     # because it needs more than double precision, which real(10) constants

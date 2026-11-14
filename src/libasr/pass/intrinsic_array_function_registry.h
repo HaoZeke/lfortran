@@ -5374,26 +5374,95 @@ namespace MatMul {
         return false;
     }
 
-    static inline ASR::ArrayConstant_t *matmul_constant_arg(ASR::expr_t *arg) {
+    // Elements of a constant array, including a parameter whose value is a
+    // constructor or a reshape of one. real(10) and real(16) are not packed
+    // into an ArrayConstant, so `expr_value` of those parameters is null.
+    static inline bool matmul_collect_elements(Allocator &al, ASR::expr_t *arg,
+            std::vector<ASR::expr_t*> &out) {
+        if (!arg) return false;
         if (ASR::is_a<ASR::ArrayPhysicalCast_t>(*arg)) {
-            arg = ASR::down_cast<ASR::ArrayPhysicalCast_t>(arg)->m_arg;
+            return matmul_collect_elements(al,
+                ASR::down_cast<ASR::ArrayPhysicalCast_t>(arg)->m_arg, out);
         }
-        arg = ASRUtils::expr_value(arg);
-        if (arg && ASR::is_a<ASR::ArrayPhysicalCast_t>(*arg)) {
-            arg = ASR::down_cast<ASR::ArrayPhysicalCast_t>(arg)->m_arg;
+        if (ASR::is_a<ASR::Var_t>(*arg)) {
+            ASR::Variable_t *v = ASR::down_cast<ASR::Variable_t>(
+                ASRUtils::symbol_get_past_external(
+                    ASR::down_cast<ASR::Var_t>(arg)->m_v));
+            if (v->m_storage != ASR::storage_typeType::Parameter) return false;
+            ASR::expr_t *init = v->m_value ? v->m_value : v->m_symbolic_value;
+            return matmul_collect_elements(al, init, out);
         }
-        if (!arg || !ASR::is_a<ASR::ArrayConstant_t>(*arg)) {
-            return nullptr;
+        if (ASR::is_a<ASR::ArrayReshape_t>(*arg)) {
+            ASR::ArrayReshape_t *r = ASR::down_cast<ASR::ArrayReshape_t>(arg);
+            if (r->m_value) {
+                return matmul_collect_elements(al, r->m_value, out);
+            }
+            return matmul_collect_elements(al, r->m_array, out);
         }
-        return ASR::down_cast<ASR::ArrayConstant_t>(arg);
+        if (ASR::is_a<ASR::Cast_t>(*arg)) {
+            ASR::Cast_t *c = ASR::down_cast<ASR::Cast_t>(arg);
+            if (c->m_value) return matmul_collect_elements(al, c->m_value, out);
+            return matmul_collect_elements(al, c->m_arg, out);
+        }
+        if (ASR::is_a<ASR::ArrayConstant_t>(*arg)) {
+            ASR::ArrayConstant_t *a = ASR::down_cast<ASR::ArrayConstant_t>(arg);
+            int64_t n = ASRUtils::get_fixed_size_of_array(a->m_type);
+            for (int64_t i = 0; i < n; i++) {
+                ASR::expr_t *e = ASRUtils::fetch_ArrayConstant_value(al, a, i);
+                if (!e) return false;
+                out.push_back(e);
+            }
+            return true;
+        }
+        if (ASR::is_a<ASR::ArrayConstructor_t>(*arg)) {
+            ASR::ArrayConstructor_t *c = ASR::down_cast<ASR::ArrayConstructor_t>(arg);
+            if (c->m_value && ASR::is_a<ASR::ArrayConstant_t>(*c->m_value)) {
+                return matmul_collect_elements(al, c->m_value, out);
+            }
+            for (size_t i = 0; i < c->n_args; i++) {
+                ASR::expr_t *e = c->m_args[i];
+                if (ASRUtils::is_array(ASRUtils::expr_type(e))) {
+                    if (!matmul_collect_elements(al, e, out)) return false;
+                } else {
+                    out.push_back(e);
+                }
+            }
+            return !out.empty();
+        }
+        ASR::expr_t *value = ASRUtils::expr_value(arg);
+        if (value && value != arg) {
+            return matmul_collect_elements(al, value, out);
+        }
+        return false;
     }
 
     template <typename T>
-    static inline bool matmul_element(Allocator &al, ASR::ArrayConstant_t *a,
-            int64_t i, T &v) {
-        ASR::expr_t *e = ASRUtils::fetch_ArrayConstant_value(al, a, i);
+    static inline bool matmul_element(Allocator &al, ASR::expr_t *e, T &v) {
+        (void)al;
         if (e && ASR::is_a<ASR::ComplexConstructor_t>(*e)) {
-            e = ASR::down_cast<ASR::ComplexConstructor_t>(e)->m_value;
+            ASR::ComplexConstructor_t *cc =
+                ASR::down_cast<ASR::ComplexConstructor_t>(e);
+            if (cc->m_value && ASR::is_a<ASR::ComplexConstant_t>(*cc->m_value)) {
+                e = cc->m_value;
+            } else if constexpr (is_std_complex<T>::value) {
+                // complex(10) and complex(16) stay constructors: their parts
+                // do not fit in a ComplexConstant.
+                ASR::expr_t *re = ASRUtils::expr_value(cc->m_re);
+                ASR::expr_t *im = ASRUtils::expr_value(cc->m_im);
+                if (!re || !im || !ASR::is_a<ASR::RealConstant_t>(*re)
+                        || !ASR::is_a<ASR::RealConstant_t>(*im)) {
+                    return false;
+                }
+                v = T(static_cast<typename T::value_type>(
+                        ASRUtils::real_constant_get_double(
+                            ASR::down_cast<ASR::RealConstant_t>(re))),
+                    static_cast<typename T::value_type>(
+                        ASRUtils::real_constant_get_double(
+                            ASR::down_cast<ASR::RealConstant_t>(im))));
+                return true;
+            } else {
+                return false;
+            }
         }
         if (!e) return false;
         if constexpr (std::is_same_v<T, bool>) {
@@ -5407,7 +5476,16 @@ namespace MatMul {
             }
             if constexpr (!std::is_integral_v<T>) {
                 if (ASR::is_a<ASR::RealConstant_t>(*e)) {
-                    v = static_cast<T>(ASR::down_cast<ASR::RealConstant_t>(e)->m_r);
+                    ASR::RealConstant_t *rc = ASR::down_cast<ASR::RealConstant_t>(e);
+                    int rk = ASRUtils::extract_kind_from_ttype_t(rc->m_type);
+                    if (rk == 10) {
+                        v = static_cast<T>(ASRUtils::real_constant_get_r10(rc));
+                    } else if (rk == 16) {
+                        v = static_cast<T>(lf_f128_to_double(
+                            ASRUtils::real_constant_get_r16(rc)));
+                    } else {
+                        v = static_cast<T>(rc->m_r);
+                    }
                     return true;
                 }
             }
@@ -5447,16 +5525,17 @@ namespace MatMul {
     template <typename T>
     static inline ASR::expr_t *eval_MatMul_values(Allocator &al,
             const Location &loc, ASR::ttype_t *return_type,
-            ASR::ArrayConstant_t *a, ASR::ArrayConstant_t *b,
+            const std::vector<ASR::expr_t*> &a,
+            const std::vector<ASR::expr_t*> &b,
             int64_t n, int64_t k, int64_t m, diag::Diagnostics &diag) {
         std::vector<T> va(n * k), vb(k * m);
         T v{};
         for (int64_t i = 0; i < n * k; i++) {
-            if (!matmul_element(al, a, i, v)) return nullptr;
+            if (!matmul_element(al, a[i], v)) return nullptr;
             va[i] = v;
         }
         for (int64_t i = 0; i < k * m; i++) {
-            if (!matmul_element(al, b, i, v)) return nullptr;
+            if (!matmul_element(al, b[i], v)) return nullptr;
             vb[i] = v;
         }
         ASR::ttype_t *elem_type = ASRUtils::type_get_past_array(
@@ -5498,10 +5577,52 @@ namespace MatMul {
                 } else if constexpr (is_std_complex<T>::value) {
                     value = EXPR(ASR::make_ComplexConstant_t(al, loc,
                         s.real(), s.imag(), elem_type));
+                } else if constexpr (std::is_same_v<T, long double>) {
+                    value = ASRUtils::make_RealConstant_r10(al, loc, s, elem_type);
                 } else {
                     value = ASRUtils::make_RealConstant_util(al, loc, s, elem_type);
                 }
                 values[i + j * n] = value;
+            }
+        }
+        ASRBuilder builder(al, loc);
+        return builder.ArrayConstant(values, elem_type, false, return_type);
+    }
+
+    // real(16) is a binary128 payload, not a host `double`, so the product
+    // is accumulated with the quad helpers and stored with
+    // `make_RealConstant_r16`.
+    static inline ASR::expr_t *eval_MatMul_r16(Allocator &al,
+            const Location &loc, ASR::ttype_t *return_type,
+            const std::vector<ASR::expr_t*> &a,
+            const std::vector<ASR::expr_t*> &b,
+            int64_t n, int64_t k, int64_t m) {
+        std::vector<lf_float128> va(n * k), vb(k * m);
+        for (int64_t i = 0; i < n * k; i++) {
+            ASR::expr_t *e = a[i];
+            if (!e || !ASR::is_a<ASR::RealConstant_t>(*e)) return nullptr;
+            va[i] = ASRUtils::real_constant_get_r16(
+                ASR::down_cast<ASR::RealConstant_t>(e));
+        }
+        for (int64_t i = 0; i < k * m; i++) {
+            ASR::expr_t *e = b[i];
+            if (!e || !ASR::is_a<ASR::RealConstant_t>(*e)) return nullptr;
+            vb[i] = ASRUtils::real_constant_get_r16(
+                ASR::down_cast<ASR::RealConstant_t>(e));
+        }
+        ASR::ttype_t *elem_type = ASRUtils::type_get_past_array(
+            ASRUtils::type_get_past_allocatable(return_type));
+        std::vector<ASR::expr_t*> values(n * m);
+        lf_float128 zero = lf_f128_from_double(0.0);
+        for (int64_t j = 0; j < m; j++) {
+            for (int64_t i = 0; i < n; i++) {
+                lf_float128 s = zero;
+                for (int64_t p = 0; p < k; p++) {
+                    s = lf_f128_add(s, lf_f128_mul(
+                        va[i + p * n], vb[p + j * k]));
+                }
+                values[i + j * n] = ASRUtils::make_RealConstant_r16(
+                    al, loc, s, elem_type);
             }
         }
         ASRBuilder builder(al, loc);
@@ -5513,13 +5634,12 @@ namespace MatMul {
         diag::Diagnostics& diag) {
         ASR::ttype_t *elem_type = ASRUtils::type_get_past_array(
             ASRUtils::type_get_past_allocatable(return_type));
-        ASR::ArrayConstant_t *consts[2];
+        std::vector<ASR::expr_t*> consts[2];
         int64_t shape[2][2];
         for (int i = 0; i < 2; i++) {
             ASR::ttype_t *arg_type = expr_type(args[i]);
             if (!matmul_arg_foldable(arg_type, elem_type)) return nullptr;
-            consts[i] = matmul_constant_arg(args[i]);
-            if (!consts[i]) return nullptr;
+            if (!matmul_collect_elements(al, args[i], consts[i])) return nullptr;
             ASR::dimension_t *dims = nullptr;
             int rank = checked_integer_cast<int>(
                 extract_dimensions_from_ttype(arg_type, dims));
@@ -5538,7 +5658,7 @@ namespace MatMul {
                 shape[i][0] = lengths[0];
                 shape[i][1] = lengths[1];
             }
-            if (ASRUtils::get_fixed_size_of_array(consts[i]->m_type) !=
+            if (static_cast<int64_t>(consts[i].size()) !=
                     shape[i][0] * shape[i][1]) {
                 return nullptr;
             }
@@ -5567,14 +5687,20 @@ namespace MatMul {
         } else if (is_real(*elem_type) && kind == 8) {
             return eval_MatMul_values<double>(al, loc, return_type,
                 consts[0], consts[1], n, k, m, diag);
+        } else if (is_real(*elem_type) && kind == 10) {
+            return eval_MatMul_values<long double>(al, loc, return_type,
+                consts[0], consts[1], n, k, m, diag);
+        } else if (is_real(*elem_type) && kind == 16) {
+            return eval_MatMul_r16(al, loc, return_type,
+                consts[0], consts[1], n, k, m);
         } else if (is_complex(*elem_type) && kind == 4) {
             return eval_MatMul_values<std::complex<float>>(al, loc, return_type,
                 consts[0], consts[1], n, k, m, diag);
-        } else if (is_complex(*elem_type) && kind == 8) {
+        } else if (is_complex(*elem_type) &&
+                (kind == 8 || kind == 10 || kind == 16)) {
             return eval_MatMul_values<std::complex<double>>(al, loc, return_type,
                 consts[0], consts[1], n, k, m, diag);
         }
-        // Other kinds are not folded at compile time.
         return nullptr;
     }
 
