@@ -30148,7 +30148,25 @@ public:
             }
         }
         if (section) {
-            actual_size = elements_from_section_through_end(section);
+            // A section whose rank matches its base already describes the
+            // whole tail (`a(k:)`). Recomputing that length visits the
+            // bound again, so `a(f():)` would call `f` twice. Only a
+            // section of lower rank than its base (`data(:, i)`) is shorter
+            // than the storage that follows its first element.
+            size_t base_rank = ASRUtils::extract_n_dims_from_ttype(
+                ASRUtils::expr_type(section->m_v));
+            size_t section_rank = 0;
+            for (size_t d = 0; d < section->n_args; d++) {
+                ASR::array_index_t& idx = section->m_args[d];
+                bool scalar = idx.m_left == nullptr && idx.m_step == nullptr &&
+                    idx.m_right != nullptr;
+                if (!scalar) {
+                    section_rank++;
+                }
+            }
+            if (section_rank < base_rank) {
+                actual_size = elements_from_section_through_end(section);
+            }
         }
         // An assumed-size dummy has exactly the actual argument's element
         // count, so a zero-element actual gives a zero-size dummy even when
