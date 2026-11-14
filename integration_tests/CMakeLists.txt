@@ -7950,6 +7950,7 @@ RUN(NAME pack_allocatable_01 LABELS gfortran llvm)
 RUN(NAME optional_class_forward_01 LABELS gfortran llvm)
 RUN(NAME optional_array_forward_01 LABELS gfortran llvm)
 RUN(NAME trim_absent_optional_01 LABELS gfortran llvm)
+RUN(NAME allocatable_section_reverse_01 LABELS gfortran llvm)
 # real(10) tests run only where the runtime is known to read the kind 10
 # storage type of the generated code (x86-64 Linux, Apple arm64); on Windows and
 # aarch64 Linux the two disagree: https://github.com/lfortran/lfortran/issues/13935
