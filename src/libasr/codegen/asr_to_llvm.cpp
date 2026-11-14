@@ -1064,6 +1064,10 @@ public:
         if (compiler_options.po.fast && !compiler_options.po.no_fast_math) {
             llvm::FastMathFlags fmf;
             fmf.setFast();
+            // NoNaNs and NoInfs make a store of an infinity poison, so
+            // `ieee_value` of an infinity never reaches the caller.
+            fmf.setNoNaNs(false);
+            fmf.setNoInfs(false);
             builder->setFastMathFlags(fmf);
         }
         // The storage of a common block is shared with the object files of
@@ -8992,8 +8996,6 @@ public:
         llvm::Function *F = llvm::Function::Create(function_type,
                 llvm::Function::ExternalLinkage, program_fn_name, module.get());
         if (compiler_options.po.fast && !compiler_options.po.no_fast_math) {
-            F->addFnAttr("no-nans-fp-math", "true");
-            F->addFnAttr("no-infs-fp-math", "true");
             F->addFnAttr("no-signed-zeros-fp-math", "true");
             F->addFnAttr("unsafe-fp-math", "true");
         }
@@ -12356,8 +12358,6 @@ public:
         list_call_arg_to_finalize.clear();
         bindc_stride_exits.clear();
         if (compiler_options.po.fast && !compiler_options.po.no_fast_math) {
-            F->addFnAttr("no-nans-fp-math", "true");
-            F->addFnAttr("no-infs-fp-math", "true");
             F->addFnAttr("no-signed-zeros-fp-math", "true");
             F->addFnAttr("unsafe-fp-math", "true");
         }
