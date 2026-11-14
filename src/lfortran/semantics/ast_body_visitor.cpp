@@ -9360,8 +9360,20 @@ public:
 
         ASRUtils::make_ArrayBroadcast_t_util(al, x.base.base.loc, target, value);
 
+        // F2003 allocatable assignment gives a whole allocatable array, or
+        // an allocatable array component, the shape of the expression. A
+        // section or element on the left still needs `--realloc-lhs-arrays`.
+        bool realloc_lhs = compiler_options.po.realloc_lhs_arrays;
+        if (!realloc_lhs && (ASR::is_a<ASR::Var_t>(*target)
+                || ASR::is_a<ASR::StructInstanceMember_t>(*target))) {
+            ASR::ttype_t *target_type = ASRUtils::expr_type(target);
+            if (ASRUtils::is_allocatable(target_type)
+                    && ASRUtils::is_array(target_type)) {
+                realloc_lhs = true;
+            }
+        }
         tmp = ASRUtils::make_Assignment_t_util(al, x.base.base.loc, target, value,
-                            overloaded_stmt, compiler_options.po.realloc_lhs_arrays, false);
+                            overloaded_stmt, realloc_lhs, false);
     }
 
     ASR::asr_t* create_CFPointer(const AST::SubroutineCall_t& x) {

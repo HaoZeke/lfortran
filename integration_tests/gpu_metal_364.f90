@@ -1,10 +1,5 @@
 program gpu_metal_364
-! Expected to fail with bounds checking on, built without
-! --realloc-lhs-arrays. The offloaded loop assigns an array to the component
-! t(i)%v itself, and t(2)%v, which the loop writes, is not allocated.
-! Without the option an assignment does not allocate its left-hand side, so
-! the launch reports that t(2)%v is not allocated, as bounds checking does
-! for the same loop on the CPU, instead of losing the write.
+! Assigning a section to an allocatable component allocates the component.
 implicit none
 type tt
     real, allocatable :: v(:)
@@ -18,6 +13,7 @@ allocate(t(1)%v(3), t(3)%v(3))
 do concurrent (i = 1:2)
     t(i)%v = c(i:i+2)
 end do
-print *, allocated(t(2)%v)
+if (.not. allocated(t(2)%v)) error stop 1
+if (any(t(2)%v /= c(2:4))) error stop 2
 
 end program

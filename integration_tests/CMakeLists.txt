@@ -7641,7 +7641,7 @@ RUN(NAME gpu_metal_370 LABELS metal cuda EXTRA_ARGS --realloc-lhs-arrays)
 RUN(NAME gpu_metal_375 FAIL NO_FAST LABELS metal cuda) # bounds checking reports a component written in both branches of an `if` that is not allocated without --realloc-lhs-arrays
 RUN(NAME gpu_metal_359 FAIL NO_FAST LABELS metal cuda) # bounds checking reports a component that is not allocated without --realloc-lhs-arrays
 RUN(NAME gpu_metal_363 FAIL NO_FAST LABELS metal cuda) # bounds checking reports a component an `if` lets the loop write that is not allocated without --realloc-lhs-arrays
-RUN(NAME gpu_metal_364 FAIL NO_FAST NO_STD_F23 LABELS llvm metal cuda) # bounds checking reports a component the loop assigns an array to that is not allocated without --realloc-lhs-arrays; --std=f23 allocates it on assignment
+RUN(NAME gpu_metal_364 NO_FAST NO_STD_F23 LABELS llvm metal cuda)
 RUN(NAME gpu_metal_377 LABELS gfortran llvm metal cuda EXTRAFILES gpu_metal_377_mod.f90 EXTRA_ARGS --separate-compilation)
 RUN(NAME gpu_metal_385 LABELS gfortran llvm metal cuda EXTRAFILES gpu_metal_385_mod.f90 EXTRA_ARGS --separate-compilation)
 RUN(NAME gpu_metal_395 LABELS gfortran llvm metal cuda EXTRAFILES gpu_metal_395_mod.f90 EXTRA_ARGS --separate-compilation)
@@ -7911,6 +7911,7 @@ RUN(NAME detect_leaks_01 LABELS gfortran llvm EXTRA_ARGS --detect-leaks)
 # lfortran_display is an LFortran runtime module that GFortran does not have.
 # Its procedures do not link with --separate-compilation yet (#15852).
 RUN(NAME display_data_01 LABELS llvm NO_LLVM_GOC)
+RUN(NAME realloc_constructor_01 LABELS gfortran llvm)
 
 if (LFORTRAN_SMOKE)
     get_property(smoke_tests DIRECTORY PROPERTY TESTS)
