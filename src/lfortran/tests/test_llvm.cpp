@@ -1866,6 +1866,78 @@ end subroutine
     CHECK(unit_stride);
 }
 
+TEST_CASE("LLVM --fast leaves a negative stride multiply off the fast path") {
+    // ix = 1; if (inc < 0) ix = (1 - n)*inc + 1. The multiply is only
+    // needed for a negative increment. --fast must not run it before
+    // the branch.
+    std::string source = R"(subroutine neg_stride(n, inc, x, y)
+integer, intent(in) :: n, inc
+real(8), intent(in) :: x(*)
+real(8), intent(out) :: y(*)
+integer :: i, ix
+ix = 1
+if (inc < 0) ix = (1 - n)*inc + 1
+do i = 1, n
+    y(i) = x(ix)
+    ix = ix + inc
+end do
+end subroutine
+)";
+    Allocator al(64*1024);
+    LCompilers::diag::Diagnostics diagnostics;
+    CompilerOptions co;
+    co.po.runtime_library_dir = LFORTRAN_BUILD_RUNTIME_DIR;
+    co.platform = LCompilers::get_platform();
+    co.po.fast = true;
+    co.po.bounds_checking = false;
+    co.po.strict_bounds_checking = false;
+    LCompilers::LLVMEvaluator e(co);
+    LCompilers::LFortran::AST::TranslationUnit_t* tu = TRY(
+        LCompilers::LFortran::parse(al, source, diagnostics, co));
+    LCompilers::LocationManager lm;
+    LCompilers::LocationManager::FileLocations file;
+    file.in_filename = "neg_stride.f90";
+    lm.files.push_back(file);
+    lm.file_ends.push_back(LCompilers::LFortran::source_offset(source.size()));
+    LCompilers::ASR::TranslationUnit_t* asr = TRY(
+        LCompilers::LFortran::ast_to_asr(al, *tu, diagnostics, nullptr, false,
+            co, lm));
+    LCompilers::PassManager lpm;
+    lpm.use_default_passes();
+    LCompilers::Result<std::unique_ptr<LCompilers::LLVMModule>> res
+        = LCompilers::asr_to_llvm(*asr, diagnostics, e.get_context(),
+            e.get_target_config(), al, lpm, co, "", "", "", lm);
+    INFO(diagnostics.render2());
+    REQUIRE(res.ok);
+    e.opt(*res.result->m_m);
+    llvm::Function *fn = nullptr;
+    for (llvm::Function &f : *res.result->m_m) {
+        if (!f.isDeclaration() && f.getName() == "neg_stride") fn = &f;
+    }
+    REQUIRE(fn != nullptr);
+    bool mul_on_cold_edge = false;
+    for (llvm::BasicBlock &bb : *fn) {
+        auto *br = llvm::dyn_cast<llvm::BranchInst>(bb.getTerminator());
+        if (br == nullptr || !br->isConditional()) continue;
+        auto *cmp = llvm::dyn_cast<llvm::ICmpInst>(br->getCondition());
+        if (cmp == nullptr || cmp->getPredicate() != llvm::ICmpInst::ICMP_SLT) {
+            continue;
+        }
+        auto *zero = llvm::dyn_cast<llvm::ConstantInt>(cmp->getOperand(1));
+        if (zero == nullptr || !zero->isZero()) continue;
+        llvm::BasicBlock *cold = br->getSuccessor(0);
+        for (llvm::Instruction &inst : *cold) {
+            auto *mul = llvm::dyn_cast<llvm::BinaryOperator>(&inst);
+            if (mul != nullptr && mul->getOpcode() == llvm::Instruction::Mul
+                    && (mul->getOperand(0) == cmp->getOperand(0)
+                        || mul->getOperand(1) == cmp->getOperand(0))) {
+                mul_on_cold_edge = true;
+            }
+        }
+    }
+    CHECK(mul_on_cold_edge);
+}
+
 TEST_CASE("LLVM TBAA metadata under --fast") {
     std::string source = R"(module tbaa_ir_m
 implicit none

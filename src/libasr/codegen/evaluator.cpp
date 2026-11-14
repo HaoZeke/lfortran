@@ -26,6 +26,7 @@
 #include <llvm/IR/DerivedTypes.h>
 #include <llvm/IR/Function.h>
 #include <llvm/IR/IRBuilder.h>
+#include <llvm/IR/MDBuilder.h>
 #include <llvm/IR/Dominators.h>
 #include <llvm/IR/Instructions.h>
 #include <llvm/IR/Intrinsics.h>
@@ -2063,6 +2064,72 @@ static void lower_avx512_scalar_fp_selects(llvm::Module &m) {
     }
 }
 
+// `ix = 1; if (inc < 0) ix = (1 - n)*inc + 1` is the BLAS setup for a
+// negative increment. --fast folds it to a select, so the multiply runs
+// on the positive increments that `dcopy_` actually sees. Put the
+// multiply back on the cold side of the branch.
+static bool keep_negative_stride_off_fast_path(llvm::Function &fn) {
+    if (fn.empty()) return false;
+    llvm::SmallVector<llvm::SelectInst*, 4> selects;
+    for (llvm::BasicBlock &bb : fn) {
+        for (llvm::Instruction &inst : bb) {
+            auto *sel = llvm::dyn_cast<llvm::SelectInst>(&inst);
+            if (sel == nullptr || !sel->getType()->isIntegerTy()) continue;
+            auto *cmp = llvm::dyn_cast<llvm::ICmpInst>(sel->getCondition());
+            if (cmp == nullptr || cmp->getPredicate() != llvm::ICmpInst::ICMP_SLT) {
+                continue;
+            }
+            auto *zero = llvm::dyn_cast<llvm::ConstantInt>(cmp->getOperand(1));
+            auto *one = llvm::dyn_cast<llvm::ConstantInt>(sel->getFalseValue());
+            if (zero == nullptr || !zero->isZero() || one == nullptr || !one->isOne()) {
+                continue;
+            }
+            auto *add = llvm::dyn_cast<llvm::BinaryOperator>(sel->getTrueValue());
+            if (add == nullptr || add->getOpcode() != llvm::Instruction::Add
+                    || !add->hasOneUse()) {
+                continue;
+            }
+            auto *mul = llvm::dyn_cast<llvm::BinaryOperator>(add->getOperand(0));
+            if (mul == nullptr || mul->getOpcode() != llvm::Instruction::Mul
+                    || !mul->hasOneUse()) {
+                continue;
+            }
+            llvm::Value *inc = cmp->getOperand(0);
+            if (mul->getOperand(0) != inc && mul->getOperand(1) != inc) continue;
+            selects.push_back(sel);
+        }
+    }
+    if (selects.empty()) return false;
+    llvm::LLVMContext &ctx = fn.getContext();
+    llvm::MDBuilder weights(ctx);
+    for (llvm::SelectInst *sel : llvm::reverse(selects)) {
+        auto *add = llvm::cast<llvm::BinaryOperator>(sel->getTrueValue());
+        auto *mul = llvm::cast<llvm::BinaryOperator>(add->getOperand(0));
+        llvm::BasicBlock *head = sel->getParent();
+        llvm::BasicBlock *tail = head->splitBasicBlock(sel, "stride.fast");
+        head->getTerminator()->eraseFromParent();
+        llvm::BasicBlock *neg = llvm::BasicBlock::Create(
+            ctx, "stride.neg", &fn, tail);
+        llvm::IRBuilder<> builder(head);
+        llvm::BranchInst *br = builder.CreateCondBr(sel->getCondition(), neg, tail);
+        // Positive increments are the calls that matter. A cold true
+        // edge keeps the multiply off that path through codegen.
+        br->setMetadata(llvm::LLVMContext::MD_prof,
+            weights.createBranchWeights(1, 2000));
+        builder.SetInsertPoint(neg);
+        builder.CreateBr(tail);
+        mul->moveBefore(neg->getTerminator());
+        add->moveBefore(neg->getTerminator());
+        llvm::PHINode *phi = llvm::PHINode::Create(
+            sel->getType(), 2, "stride.ix", sel);
+        phi->addIncoming(add, neg);
+        phi->addIncoming(sel->getFalseValue(), head);
+        sel->replaceAllUsesWith(phi);
+        sel->eraseFromParent();
+    }
+    return true;
+}
+
 // A strict `s = s + a*b` loop is not vectorized: the reduction is not
 // associative, and runtime unrolling is off. gfortran -O3 still multiplies
 // two products at a time and adds those lanes in order, which is the same
@@ -2606,6 +2673,9 @@ void LLVMEvaluator::opt(llvm::Module &m) {
     // every call.
     eliminate_unused_alloc_pairs(m);
     lower_avx512_scalar_fp_selects(m);
+    for (llvm::Function &fn : m) {
+        keep_negative_stride_off_fast_path(fn);
+    }
     for (llvm::Function &fn : m) {
         if (fn.isDeclaration()) {
             continue;
