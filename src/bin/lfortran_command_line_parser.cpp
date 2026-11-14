@@ -33,6 +33,14 @@ namespace LCompilers::CommandLineInterface {
         // empty
     }
 
+    // gfortran preprocesses these extensions with no extra flag. `.f90` and
+    // `.f` are not in the list. `--no-cpp` still turns preprocessing off.
+    static bool preprocessed_fortran_extension(const std::string &file) {
+        return endswith(file, ".F90") || endswith(file, ".F")
+            || endswith(file, ".FOR") || endswith(file, ".fpp")
+            || endswith(file, ".FPP");
+    }
+
     static std::string to_lower(const std::string &s) {
         std::string result = s;
         std::transform(result.begin(), result.end(), result.begin(),
@@ -634,7 +642,9 @@ namespace LCompilers::CommandLineInterface {
         if (opts.arg_files.size() > 0) {
             auto is_fortran_source = [](const std::string &file) {
                 return endswith(file, ".f90") || endswith(file, ".f") ||
-                    endswith(file, ".F90") || endswith(file, ".F");
+                    endswith(file, ".F90") || endswith(file, ".F") ||
+                    endswith(file, ".FOR") || endswith(file, ".fpp") ||
+                    endswith(file, ".FPP");
             };
             size_t asr_file_count = 0;
             std::string asr_file;
@@ -722,9 +732,9 @@ namespace LCompilers::CommandLineInterface {
             compiler_options.c_preprocessor = true;
         } else if(opts.no_cpp) {
             compiler_options.c_preprocessor = false;
-        // Decide if a file gets preprocessing based on the extension
-        // Gfortran does the same thing
-        } else if (opts.cpp_infer && (endswith(source_file, ".F90") || endswith(source_file, ".F"))) {
+        // `.F90`, `.F`, `.FOR`, and `.fpp` are preprocessed by extension,
+        // as gfortran does. `--no-cpp` above remains the override.
+        } else if (preprocessed_fortran_extension(source_file)) {
             compiler_options.c_preprocessor = true;
         } else {
             compiler_options.c_preprocessor = false;
