@@ -8117,10 +8117,16 @@ LFORTRAN_API void _lfortran_copy_str_and_pad(
     char* rhs, int64_t rhs_len, int32_t char_kind){
 
     lfortran_assert(lhs != NULL, "Run-time Error : Copying into unallocated LHS string.")
-    if(rhs == NULL) lfortran_error("Run-time Error : Copying from unallocated RHS string.");
+    /* A zero-length string may have a null data pointer. `trim` of an
+       absent optional character is that string. Reading it is empty. */
+    if (rhs == NULL && rhs_len != 0) {
+        lfortran_error("Run-time Error : Copying from unallocated RHS string.");
+    }
 
     int64_t data_amount_to_copy = MIN(lhs_len, rhs_len);
-    memcpy(lhs, rhs, data_amount_to_copy * char_kind);
+    if (rhs != NULL && data_amount_to_copy > 0) {
+        memcpy(lhs, rhs, data_amount_to_copy * char_kind);
+    }
 
     int64_t pad_amount = lhs_len - data_amount_to_copy;
     if (pad_amount > 0) {
@@ -8177,7 +8183,9 @@ LFORTRAN_API void _lfortran_strcpy_alloc(
             *lhs = (char*)ALLOCATOR_REALLOC(al, *lhs, MAX(rhs_len, 1) * char_kind);
         }
         *lhs_len = rhs_len;
-        memcpy(*lhs, rhs, rhs_len * char_kind);
+        if (rhs != NULL && rhs_len > 0) {
+            memcpy(*lhs, rhs, rhs_len * char_kind);
+        }
     } else if(is_lhs_deferred && !is_lhs_allocatable) {
         lfortran_assert(*lhs != NULL, "Runtime Error : Non-allocatable string isn't allocated.")
         _lfortran_copy_str_and_pad(*lhs, *lhs_len, rhs, rhs_len, char_kind);
