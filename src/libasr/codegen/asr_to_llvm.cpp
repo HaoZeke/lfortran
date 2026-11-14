@@ -21203,29 +21203,18 @@ public:
                     x.m_source, source_arr_type, module.get());
                 llvm::Type* llvm_source_elem_type = llvm_utils->get_type_from_ttype_t_util(
                     x.m_source, ASRUtils::extract_type(source_arr_type), module.get());
-                // A character-string array, an array section built from one,
-                // and an allocatable array component are held as a pointer
-                // to the descriptor pointer. The descriptor itself is one
-                // load in. Indexing the pointer slot as if it were the
-                // descriptor mixes the two levels. An opaque pointer has no
-                // element type: getPointerElementType() is then a null load.
-                if (source->getType()->isPointerTy()) {
-                    llvm::PointerType* source_ptr_ty = llvm::cast<llvm::PointerType>(
-                        source->getType());
-                    // An opaque pointer has no element type.
-                    // getPointerElementType() is a null load in that case.
-                    // The descriptor load below already accepts the address
-                    // of the descriptor pointer.
-                    if (!source_ptr_ty->isOpaque()) {
-                        llvm::Type* pointee = source_ptr_ty->getPointerElementType();
-                        if (pointee->isPointerTy()) {
-                            llvm::PointerType* pointee_ptr = llvm::cast<llvm::PointerType>(pointee);
-                            if (!pointee_ptr->isOpaque() &&
-                                    pointee_ptr->getPointerElementType() == llvm_source_arr_type) {
-                                source = llvm_utils->CreateLoad2(pointee, source);
-                            }
-                        }
-                    }
+                // An allocatable or pointer descriptor is the pointer stored
+                // in the variable. With no load requested, `source` is that
+                // slot. Indexing the slot as the descriptor reads the
+                // descriptor address as the data pointer. LLVM opaque
+                // pointers do not say which level this is, so the ASR type
+                // decides. A load was already done when `ptr_loads` asked
+                // for the descriptor.
+                if (ptr_loads == 0 &&
+                        (ASRUtils::is_allocatable(ASRUtils::expr_type(x.m_source)) ||
+                         ASRUtils::is_pointer(ASRUtils::expr_type(x.m_source)))) {
+                    source = llvm_utils->CreateLoad2(
+                        llvm_source_arr_type->getPointerTo(), source);
                 }
                 llvm::Value* data_ptr_ptr = arr_descr->get_pointer_to_data(
                     x.m_source, ASRUtils::expr_type(x.m_source), source, module.get());
