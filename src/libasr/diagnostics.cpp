@@ -123,14 +123,27 @@ std::string Diagnostics::render2() {
     return out;
 }
 
-std::string get_line(std::string str, int n)
-{
-    std::string line;
-    std::stringstream s(str);
-    for (int i=0; i < n; i++) {
-        std::getline(s, line);
+// Lines `first_line` through `last_line` (1-based, inclusive), without their
+// terminating newlines. One forward scan: calling this once per line restarts
+// at the beginning of the file and copies it, which is quadratic in the
+// number of lines a single diagnostic covers.
+static void append_source_lines(const std::string &input,
+        uint32_t first_line, uint32_t last_line,
+        std::vector<std::string> &source_code) {
+    if (last_line < first_line) return;
+    uint32_t line = 1;
+    size_t i = 0;
+    const size_t n = input.size();
+    while (i < n && line <= last_line) {
+        size_t start = i;
+        while (i < n && input[i] != '\n') i++;
+        if (line >= first_line) {
+            source_code.emplace_back(input, start, i - start);
+        }
+        if (i < n && input[i] == '\n') i++;
+        line++;
     }
-    return line;
+    if (source_code.empty()) source_code.emplace_back();
 }
 
 // Converts the linear `loc` of the span to lines and columns in the original
@@ -172,13 +185,10 @@ void populate_span(diag::Span &s, const LocationManager &lm,
     // location rather than from a file of that name.
     const std::string *in_memory = lm.source_at(first_pos);
     if (in_memory != nullptr) {
-        for (uint32_t i = s.first_line; i <= s.last_line; i++) {
-            s.source_code.push_back(get_line(*in_memory, i));
-        }
+        append_source_lines(*in_memory, s.first_line, s.last_line,
+            s.source_code);
     } else if (read_file(s.filename, input)) {
-        for (uint32_t i = s.first_line; i <= s.last_line; i++) {
-            s.source_code.push_back(get_line(input, i));
-        }
+        append_source_lines(input, s.first_line, s.last_line, s.source_code);
     } else {
         s.source_code.push_back("File not found.\n");
     }

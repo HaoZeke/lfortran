@@ -1,5 +1,6 @@
 #include <tests/doctest.h>
 
+#include <chrono>
 #include <iostream>
 #include <fstream>
 
@@ -386,4 +387,47 @@ warning: Warning with a help
   = help: a help
 )""");
     CHECK(out == ref);
+}
+
+TEST_CASE("Error Render: a span covering thousands of lines") {
+    // A diagnostic whose span is the whole file used to copy the source and
+    // rescan it from the first line once per line. Twenty thousand lines
+    // then takes seconds. The first and last lines are still the ones shown.
+    const uint32_t nlines = 20000;
+    std::string input;
+    input.reserve(nlines * 8);
+    for (uint32_t i = 1; i <= nlines; i++) {
+        input += "L";
+        input += std::to_string(i);
+        if (i != nlines) input += "\n";
+    }
+    LocationManager lm;
+    LocationManager::FileLocations fl;
+    fl.in_filename = "wide.f90";
+    fl.source = input;
+    lm.get_newlines(input, fl.in_newlines);
+    uint32_t n = LCompilers::LFortran::source_offset(input.size());
+    fl.out_start.push_back(0);
+    fl.in_start.push_back(0);
+    fl.in_start.push_back(n);
+    fl.out_start.push_back(n);
+    lm.files.push_back(std::move(fl));
+    lm.file_ends.push_back(n);
+
+    Location loc;
+    loc.first = 0;
+    loc.last = n - 1;
+    auto d = Diagnostic(
+            "wide span",
+            Level::Error, Stage::Semantic, {
+                Label("whole file", {loc})
+            }
+        );
+    auto t0 = std::chrono::steady_clock::now();
+    std::string out = render_diagnostic_human(d, lm, false, false);
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - t0).count();
+    CHECK(out.find("|    L1\n") != std::string::npos);
+    CHECK(out.find("|    L20000\n") != std::string::npos);
+    CHECK(ms < 500);
 }
