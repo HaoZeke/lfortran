@@ -3603,8 +3603,16 @@ class ArrayOpVisitor: public ASR::CallReplacerOnExpressionsVisitor<ArrayOpVisito
             return ;
         }
 
-        if( call_replace_on_expr(xx.m_value->type) ||
-            ASR::is_a<ASR::ImpliedDoLoop_t>(*xx.m_value) ) {
+        // An elemental defined assignment is the subroutine call. Unrolling
+        // the array constructor onto the target would assign each character
+        // element to the derived type and drop the call, so `lhs%raw = rhs`
+        // never runs and the component aliases the literal.
+        bool defined_elemental = xx.m_overloaded != nullptr &&
+            ASR::is_a<ASR::SubroutineCall_t>(*xx.m_overloaded) &&
+            ASRUtils::is_elemental(ASR::down_cast<ASR::SubroutineCall_t>(
+                xx.m_overloaded)->m_name);
+        if( !defined_elemental && (call_replace_on_expr(xx.m_value->type) ||
+            ASR::is_a<ASR::ImpliedDoLoop_t>(*xx.m_value)) ) {
             if (ASR::is_a<ASR::ImpliedDoLoop_t>(*xx.m_value)) {
                 ASR::ImpliedDoLoop_t* idl = ASR::down_cast<ASR::ImpliedDoLoop_t>(xx.m_value);
                 Vec<ASR::expr_t*> args;
