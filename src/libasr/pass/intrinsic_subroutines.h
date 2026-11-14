@@ -427,8 +427,15 @@ namespace RandomNumber {
             Vec<ASR::call_arg_t>& new_args, int64_t /*overload_id*/) {
         std::string c_func_name;
         int kind = ASRUtils::extract_kind_from_ttype_t(arg_types[0]);
+        // The runtime functions return a C float or double. Declaring
+        // `_lfortran_dp_rand_num` as returning `real(10)` in one call and
+        // `real(8)` in another makes LLVM pick one return type. A `real(8)`
+        // store then writes an 80-bit value and spills two bytes past the
+        // element.
+        ASR::ttype_t* c_ret_type = ASRUtils::TYPE(ASR::make_Real_t(al, loc, 8));
         if ( kind == 4 ) {
             c_func_name = "_lfortran_sp_rand_num";
+            c_ret_type = ASRUtils::TYPE(ASR::make_Real_t(al, loc, 4));
         } else {
             c_func_name = "_lfortran_dp_rand_num";
         }
@@ -439,7 +446,7 @@ namespace RandomNumber {
         SymbolTable *fn_symtab_1 = al.make_new<SymbolTable>(fn_symtab);
         Vec<ASR::expr_t*> args_1; args_1.reserve(al, 0);
         ASR::expr_t *return_var_1 = b.Variable(fn_symtab_1, c_func_name,
-           ASRUtils::extract_type(arg_types[0]),
+           c_ret_type,
            ASRUtils::intent_return_var, nullptr, ASR::abiType::BindC, false);
         SetChar dep_1; dep_1.reserve(al, 1);
         Vec<ASR::stmt_t*> body_1; body_1.reserve(al, 1);
@@ -472,7 +479,9 @@ namespace RandomNumber {
                     b.ArrayItem_01(args[0], do_loop_variables), func_call, 1));
         } else {
             Vec<ASR::expr_t*> call_args; call_args.reserve(al, 0);
-            body.push_back(al, b.Assignment(args[0], b.Call(s, call_args, ASRUtils::extract_type(arg_types[0]))));
+            ASR::expr_t* rand_val = b.Call(s, call_args, c_ret_type);
+            rand_val = b.r2r_t(rand_val, ASRUtils::extract_type(arg_types[0]));
+            body.push_back(al, b.Assignment(args[0], rand_val));
         }
         ASR::symbol_t *new_symbol = make_ASR_Function_t(fn_name, fn_symtab, dep, args,
             body, nullptr, ASR::abiType::Source, ASR::deftypeType::Implementation, nullptr);

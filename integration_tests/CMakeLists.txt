@@ -7992,6 +7992,7 @@ elseif (APPLE AND CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64")
     # because it needs more than double precision, which real(10) constants
     # do not have on arm64.
     RUN(NAME real80_cast_01 LABELS llvm)
+    RUN(NAME random_number_kinds_01 LABELS gfortran llvm)
     RUN(NAME real80_compare_01 LABELS llvm)
     RUN(NAME real80_unary_minus_01 LABELS llvm)
     RUN(NAME real_star_02 LABELS llvm EXTRA_ARGS --implicit-typing)
