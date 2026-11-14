@@ -4758,12 +4758,44 @@ namespace Mod {
         if (is_real(*arg_types[1])) {
             ASR::ttype_t* new_type = ASRUtils::TYPE(ASR::make_Real_t(al, loc, upper_kind));
             ASR::expr_t* arg0 = b.r2r_t(args[0], new_type);
-            ASR::expr_t* arg1 = b.r2r_t(args[1], new_type);
 
-            if (upper_kind != 16) {
+            // mod(a, ±1) is a - aint(a). That equals fmod for every finite
+            // value: past 2**52 a double has no fractional part, and aint
+            // returns a itself there. A lattice rule's `mod(x, 1)`, with
+            // `1` a parameter, is the hot path. A call to `fmod` is the
+            // gap against gfortran, which subtracts the truncation in
+            // place. Each call builds its own helper, so this body is not
+            // shared with a runtime divisor.
+            bool unit_divisor = false;
+            if (upper_kind != 16 && new_args.n > 1) {
+                ASR::expr_t *div_expr = new_args[1].m_value;
+                if (div_expr != nullptr && ASR::is_a<ASR::Var_t>(*div_expr)) {
+                    ASR::Variable_t *div_var = ASRUtils::EXPR2VAR(div_expr);
+                    if (div_var->m_storage == ASR::storage_typeType::Parameter
+                            && div_var->m_value != nullptr) {
+                        div_expr = div_var->m_value;
+                    }
+                }
+                if (div_expr != nullptr && ASR::is_a<ASR::Cast_t>(*div_expr)
+                        && ASR::down_cast<ASR::Cast_t>(div_expr)->m_value) {
+                    div_expr = ASR::down_cast<ASR::Cast_t>(div_expr)->m_value;
+                }
+                double divisor = 0.0;
+                if (div_expr != nullptr
+                        && ASRUtils::extract_value(div_expr, divisor)) {
+                    unit_divisor = divisor == 1.0 || divisor == -1.0;
+                }
+            }
+            if (unit_divisor) {
+                ASR::expr_t *truncated = b.CallIntrinsic(scope, {new_type},
+                    {arg0}, new_type, 0, Aint::instantiate_Aint);
+                body.push_back(al, b.Assignment(result,
+                    b.r2r_t(b.Sub(arg0, truncated), return_type)));
+            } else if (upper_kind != 16) {
                 // The remainder of two floating-point numbers is exactly
                 // representable, so the C library `fmod` is exact, while
                 // `a - p*int(a/p)` rounds twice and overflows for large quotients.
+                ASR::expr_t* arg1 = b.r2r_t(args[1], new_type);
                 std::string c_func_name = real_c_func_name("fmod", new_type);
                 Vec<ASR::ttype_t*> c_arg_types;
                 c_arg_types.reserve(al, 2);
@@ -4780,6 +4812,7 @@ namespace Mod {
                     b.r2r_t(b.Call(c_sym, c_args, new_type), return_type)));
             } else {
                 // real(16): cast through int64 (int128 not available in ASR yet)
+                ASR::expr_t* arg1 = b.r2r_t(args[1], new_type);
                 body.push_back(al, b.Assignment(result,
                     b.Sub(arg0, b.Mul(arg1,
                         b.i2r_t(b.r2i_t(b.Div(arg0, arg1), int64), new_type)))));
