@@ -1660,8 +1660,19 @@ namespace LCompilers {
             llvm::Type* llvm_data_type = llvm_utils->get_el_type(
                 array_expr, ASRUtils::extract_type(asr_data_type), module);
             if( reserve_memory ) {
-                llvm::Value* arr_first = llvm_utils->CreateAlloca(*builder, llvm_data_type, num_elements);
-                builder->CreateStore(arr_first, first_ptr);
+                // The destination is an allocatable that intrinsic assignment
+                // must allocate. A stack slot would be freed while the
+                // allocatable still owns it, so this is a heap block.
+                llvm::DataLayout data_layout(module->getDataLayout());
+                uint64_t size = data_layout.getTypeAllocSize(llvm_data_type);
+                llvm::Value* bytes = builder->CreateMul(num_elements,
+                    llvm::ConstantInt::get(context, llvm::APInt(32, size)));
+                bytes = builder->CreateSExtOrTrunc(bytes, llvm::Type::getInt64Ty(context));
+                llvm::Value* old = llvm_utils->CreateLoad2(
+                    llvm_data_type->getPointerTo(), first_ptr);
+                llvm::Value* ptr = lfortran_realloc(context, *module, *builder, old, bytes);
+                builder->CreateStore(
+                    builder->CreateBitCast(ptr, llvm_data_type->getPointerTo()), first_ptr);
             }
 
             llvm::Value* ptr2firstptr = this->get_pointer_to_data(src_ty, src);
@@ -1705,6 +1716,10 @@ namespace LCompilers {
             llvm_utils->start_new_block(loopend);
 
             this->set_rank(dest_ty, dest, n_dims);
+            // The dimension descriptors above are the source's, so the
+            // offset has to match. An unallocated allocatable has no offset.
+            builder->CreateStore(this->get_offset(src_ty, src),
+                this->get_offset(dest_ty, dest, false));
         }
 
         // Copy destination's descriptor to the source descriptor

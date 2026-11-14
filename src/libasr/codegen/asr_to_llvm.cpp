@@ -16595,6 +16595,39 @@ public:
                     llvm::ConstantInt::get(context, llvm::APInt(32, data_size)));
                 builder->CreateMemCpy(target, llvm::MaybeAlign(), value, llvm::MaybeAlign(), llvm_size);
             } else if( is_target_descriptor_based_array && is_value_fixed_sized_array ) {
+                // `x = reshape(...)` into an allocatable: the right hand side
+                // is a fixed-size array, so nothing has allocated `x` yet.
+                // Copying into its data pointer segfaults.
+                if (x.m_realloc_lhs && ASRUtils::is_allocatable(target_type)) {
+                    ASR::dimension_t* value_dims = nullptr;
+                    int n_value_dims = (int) ASRUtils::extract_dimensions_from_ttype(
+                        value_type, value_dims);
+                    bool have_bounds = n_value_dims > 0;
+                    Vec<ASR::dimension_t> alloc_dims;
+                    alloc_dims.reserve(al, n_value_dims > 0 ? n_value_dims : 1);
+                    for (int r = 0; r < n_value_dims; r++) {
+                        ASR::dimension_t dim = value_dims[r];
+                        if (dim.m_length == nullptr) {
+                            have_bounds = false;
+                            break;
+                        }
+                        if (dim.m_start == nullptr) {
+                            dim.m_start = ASRUtils::EXPR(ASR::make_IntegerConstant_t(
+                                al, x.base.base.loc, 1, ASRUtils::TYPE(
+                                    ASR::make_Integer_t(al, x.base.base.loc, 4))));
+                        }
+                        alloc_dims.push_back(al, dim);
+                    }
+                    if (have_bounds) {
+                        ASR::ttype_t* storage = ASRUtils::type_get_past_allocatable_pointer(
+                            target_type);
+                        llvm::Type* alloc_type = llvm_utils->get_type_from_ttype_t_util(
+                            x.m_target, storage, module.get());
+                        fill_malloc_array_details(target, alloc_type, value_el_type,
+                            storage, nullptr, alloc_dims.p, n_value_dims,
+                            nullptr, nullptr, true);
+                    }
+                }
                 if( ASRUtils::is_allocatable(target_type) || ASRUtils::is_pointer(target_type) ) {
                     llvm::Type* alloc_type = llvm_utils->get_type_from_ttype_t_util(x.m_target, ASRUtils::type_get_past_allocatable_pointer(target_type), module.get());
                     target = llvm_utils->CreateLoad2(alloc_type->getPointerTo(), target);
@@ -16795,7 +16828,7 @@ public:
                         src_data, target_array_type, target,
                         target_el_type, rank, module.get());
                 } else {
-                    arr_descr->copy_array(source_array_type, value, target_array_type, target, module.get(), x.m_target, target_type, false);
+                    arr_descr->copy_array(source_array_type, value, target_array_type, target, module.get(), x.m_target, target_type, x.m_realloc_lhs);
                 }
             }
         } else if( ASR::is_a<ASR::DictItem_t>(*x.m_target) ) {
