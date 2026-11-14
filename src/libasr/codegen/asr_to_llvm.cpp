@@ -908,6 +908,21 @@ public:
         llvm::Value* target_var; // Corresponds to variable `v` in llvm IR.
     };
     std::vector<variable_inital_value> variable_inital_value_vec; /* Saves information for variables that need to be initialized once. To be initialized in `program`*/
+
+    // SAVE pointer arrays that overlay one SAVE block (d1mach's integer
+    // pairs over DMACH). Their descriptors are filled once, under one flag.
+    struct EquivView {
+        ASR::Variable_t *v;
+        llvm::Value *ptr;
+        llvm::Type *type;
+        ASR::dimension_t *dims;
+        size_t n_dims;
+        bool is_malloc_array_type;
+        bool is_array_type;
+        bool is_list;
+        llvm::GlobalVariable *saved_descriptor;
+    };
+    std::vector<EquivView> equiv_views;
     struct saved_struct_variable { /* A procedure's save variable of struct type, whose members are finalized at program exit */
         ASR::Variable_t* v;
         llvm::Value* target_var; // Corresponds to variable `v` in llvm IR.
@@ -9293,8 +9308,9 @@ public:
             set_VariableInital_value(var_to_initalize.v, var_to_initalize.target_var);
         }
         proc_return = llvm::BasicBlock::Create(context, "return");
+        size_t equiv_skip = emit_saved_equivalence_init(x);
         predeclare_goto_targets(F, x.m_body, x.n_body);
-        for (size_t i=0; i<x.n_body; i++) {
+        for (size_t i=equiv_skip; i<x.n_body; i++) {
             this->visit_stmt(*x.m_body[i]);
         }
         if (compiler_options.emit_debug_info) debug_emit_loc(x);
@@ -11233,6 +11249,12 @@ public:
                         create_null_array_descriptor_global(type_,
                             global_name + ".__descriptor");
                     saved_global->setInitializer(saved_descriptor);
+                    if (targeted_by_entry_equivalence(x, v)) {
+                        // Filled once with the other views of this block.
+                        equiv_views.push_back({v, ptr, type_, m_dims, n_dims,
+                            is_malloc_array_type, is_array_type, is_list,
+                            saved_descriptor});
+                    } else {
                     llvm::Type* i1_type = llvm::Type::getInt1Ty(context);
                     llvm::GlobalVariable* guard = new llvm::GlobalVariable(
                         *module, i1_type, false,
@@ -11255,6 +11277,7 @@ public:
                             x.class_type != ASR::symbolType::Program &&
                             ASRUtils::is_allocatable(v->m_type)) {
                         saved_allocatable_array_vec.push_back({v, ptr, guard});
+                    }
                     }
                 } else {
                     fill_array_details_(v, ptr, type_, m_dims, n_dims,
@@ -11333,8 +11356,144 @@ public:
         }
     }
 
+    // The shape passed to `c_f_pointer` is a constant, or the temporary
+    // the front end created to hold that constant.
+    bool shape_is_static_view(ASR::expr_t *shape) {
+        if (shape == nullptr) {
+            return false;
+        }
+        if (ASR::is_a<ASR::ArrayConstant_t>(*shape)) {
+            return true;
+        }
+        if (!ASR::is_a<ASR::Var_t>(*shape)) {
+            return false;
+        }
+        std::string name = ASRUtils::EXPR2VAR(shape)->m_name;
+        return name.find("array_constant") != std::string::npos;
+    }
+
+    // Assignments that only fill those shape temporaries, ahead of the
+    // `c_f_pointer` that uses them.
+    bool is_equivalence_setup_stmt(const ASR::stmt_t *stmt) {
+        if (is_equivalence_view_stmt(stmt)) {
+            return true;
+        }
+        if (stmt->type != ASR::stmtType::Assignment) {
+            return false;
+        }
+        auto *asg = ASR::down_cast<ASR::Assignment_t>(stmt);
+        const ASR::expr_t *target = asg->m_target;
+        if (ASR::is_a<ASR::ArrayItem_t>(*target)) {
+            target = ASR::down_cast<ASR::ArrayItem_t>(target)->m_v;
+        }
+        if (!ASR::is_a<ASR::Var_t>(*target)) {
+            return false;
+        }
+        std::string name = ASRUtils::EXPR2VAR(target)->m_name;
+        return name.rfind("__", 0) == 0;
+    }
+
+    // `c_f_pointer` of a SAVE array element onto a SAVE pointer array:
+    // the integer pairs equivalenced with d1mach's DMACH block.
+    bool is_equivalence_view_stmt(const ASR::stmt_t *stmt) {
+        if (stmt->type != ASR::stmtType::CPtrToPointer) {
+            return false;
+        }
+        auto *c = ASR::down_cast<ASR::CPtrToPointer_t>(stmt);
+        if (!shape_is_static_view(c->m_shape)) {
+            return false;
+        }
+        if (!ASR::is_a<ASR::Var_t>(*c->m_ptr)) {
+            return false;
+        }
+        ASR::Variable_t *dst = ASRUtils::EXPR2VAR(c->m_ptr);
+        if (dst->m_storage != ASR::storage_typeType::Save
+                || !ASRUtils::is_pointer(dst->m_type)
+                || ASRUtils::is_allocatable(dst->m_type)
+                || !ASRUtils::is_array(dst->m_type)) {
+            return false;
+        }
+        const ASR::expr_t *e = c->m_cptr;
+        if (!ASR::is_a<ASR::PointerToCPtr_t>(*e)) {
+            return false;
+        }
+        e = ASR::down_cast<ASR::PointerToCPtr_t>(e)->m_arg;
+        if (!ASR::is_a<ASR::GetPointer_t>(*e)) {
+            return false;
+        }
+        e = ASR::down_cast<ASR::GetPointer_t>(e)->m_arg;
+        if (!ASR::is_a<ASR::ArrayItem_t>(*e)) {
+            return false;
+        }
+        auto *item = ASR::down_cast<ASR::ArrayItem_t>(e);
+        if (!ASR::is_a<ASR::Var_t>(*item->m_v) || item->n_args != 1
+                || item->m_args[0].m_right == nullptr
+                || !ASR::is_a<ASR::IntegerConstant_t>(*item->m_args[0].m_right)) {
+            return false;
+        }
+        ASR::Variable_t *src = ASRUtils::EXPR2VAR(item->m_v);
+        return src->m_storage == ASR::storage_typeType::Save;
+    }
+
+    template <typename T>
+    bool targeted_by_entry_equivalence(const T &x, ASR::Variable_t *v) {
+        for (size_t i = 0; i < x.n_body; i++) {
+            if (!is_equivalence_setup_stmt(x.m_body[i])) {
+                break;
+            }
+            if (!is_equivalence_view_stmt(x.m_body[i])) {
+                continue;
+            }
+            auto *c = ASR::down_cast<ASR::CPtrToPointer_t>(x.m_body[i]);
+            if (ASRUtils::EXPR2VAR(c->m_ptr) == v) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // One flag for every equivalenced view of one SAVE block. The
+    // descriptors and the `c_f_pointer` associations run on the first
+    // call; later calls branch past them.
+    template <typename T>
+    size_t emit_saved_equivalence_init(const T &x) {
+        if (equiv_views.empty()) {
+            return 0;
+        }
+        size_t n = 0;
+        while (n < x.n_body && is_equivalence_setup_stmt(x.m_body[n])) {
+            n++;
+        }
+        llvm::Function *fn = builder->GetInsertBlock()->getParent();
+        llvm::Type *i1 = llvm::Type::getInt1Ty(context);
+        std::string gname = std::string(fn->getName()) + ".__equiv_init";
+        auto *guard = new llvm::GlobalVariable(
+            *module, i1, false, llvm::GlobalValue::InternalLinkage,
+            llvm::ConstantInt::getFalse(context), gname);
+        llvm::BasicBlock *cont = llvm::BasicBlock::Create(context, "equiv.cont", fn);
+        llvm::BasicBlock *init = llvm::BasicBlock::Create(context, "equiv.init", fn, cont);
+        builder->CreateCondBr(
+            builder->CreateNot(builder->CreateLoad(i1, guard)), init, cont);
+        builder->SetInsertPoint(init);
+        builder->CreateStore(llvm::ConstantInt::getTrue(context), guard);
+        for (EquivView &ev : equiv_views) {
+            fill_array_details_(ev.v, ev.ptr, ev.type, ev.dims, ev.n_dims,
+                ev.is_malloc_array_type, ev.is_array_type, ev.is_list, ev.v->m_type,
+                /*is_data_only=*/false, /*reserve_data_memory=*/false,
+                ev.saved_descriptor);
+        }
+        for (size_t i = 0; i < n; i++) {
+            this->visit_stmt(*x.m_body[i]);
+        }
+        builder->CreateBr(cont);
+        builder->SetInsertPoint(cont);
+        equiv_views.clear();
+        return n;
+    }
+
     template<typename T>
     void declare_vars(const T &x) {
+        equiv_views.clear();
         uint32_t debug_arg_count = 0;
         std::vector<std::string> var_order = ASRUtils::determine_variable_declaration_order(x.m_symtab);
         for (auto &item : var_order) {
@@ -13308,9 +13467,10 @@ public:
 
             if (!prototype_only) {
                 define_function_entry(x);
+                size_t equiv_skip = emit_saved_equivalence_init(x);
                 predeclare_goto_targets(builder->GetInsertBlock()->getParent(), x.m_body, x.n_body);
 
-                for (size_t i=0; i<x.n_body; i++) {
+                for (size_t i=equiv_skip; i<x.n_body; i++) {
                     this->visit_stmt(*x.m_body[i]);
                 }
                 

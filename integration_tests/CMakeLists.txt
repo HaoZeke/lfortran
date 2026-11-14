@@ -6019,6 +6019,7 @@ RUN(NAME integer_kind_16_pow LABELS gfortran llvm)
 RUN(NAME integer_pow_negative LABELS gfortran llvm)
 RUN(NAME real_pow_int_01 LABELS gfortran llvm)
 RUN(NAME ordered_dot_01 LABELS gfortran llvm)
+RUN(NAME mach_equiv_01 LABELS gfortran llvm)
 # (-1)**(k/2) in a recurrence. The sign is the low bit of the exponent.
 RUN(NAME neg_one_pow_01 LABELS gfortran llvm)
 
