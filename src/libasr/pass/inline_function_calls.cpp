@@ -193,6 +193,11 @@ class InlineFunctionCalls: public ASR::BaseExprReplacer<InlineFunctionCalls> {
             if( variable->m_storage == ASR::storage_typeType::Save ) {
                 return false;
             }
+            // An optional dummy may be absent. Inlining copies every actual
+            // into a local, which would read an absent argument.
+            if( variable->m_presence == ASR::presenceType::Optional ) {
+                return false;
+            }
 
             if( ASR::is_a<ASR::FunctionType_t>(*ASRUtils::type_get_past_array(
                     ASRUtils::type_get_past_allocatable_pointer(
@@ -223,6 +228,11 @@ class InlineFunctionCalls: public ASR::BaseExprReplacer<InlineFunctionCalls> {
         }
 
         for( size_t i = 0; i < func_call->n_args; i++ ) {
+            // An omitted optional actual has no value. Upstream dereferenced
+            // that null while deciding whether the call can be inlined.
+            if( func_call->m_args[i].m_value == nullptr ) {
+                return false;
+            }
             // A raw pointer to an array element is sequence associated with
             // the dummy, which a pointer association cannot express.
             if( ASR::is_a<ASR::ArrayPhysicalCast_t>(*func_call->m_args[i].m_value) ||
