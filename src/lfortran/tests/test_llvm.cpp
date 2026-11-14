@@ -1939,6 +1939,51 @@ end subroutine
         }, false, true);
 }
 
+TEST_CASE("LLVM --fast lowers mod of one to a truncation") {
+    // mod(x, 1) is x - aint(x). A call to fmod is what the lattice rule
+    // in mvndst spends its time in. A runtime divisor still calls fmod:
+    // a - p*int(a/p) is not exact for a large quotient.
+    std::string source = R"(subroutine mod1(x, y)
+real(8), intent(in) :: x
+real(8), intent(out) :: y
+real(8), parameter :: one = 1.0d0
+y = mod(x, one)
+end subroutine
+subroutine modp(x, p, y)
+real(8), intent(in) :: x, p
+real(8), intent(out) :: y
+y = mod(x, p)
+end subroutine
+)";
+    inspect_definitions(source, true, {{"mod1", "mod1"}, {"modp", "modp"}},
+        [&](const std::string &procedure, llvm::Function &fn) {
+            bool calls_fmod = false;
+            bool subtracts = false;
+            for (llvm::BasicBlock &block : fn) {
+                for (llvm::Instruction &inst : block) {
+                    if (auto *call = llvm::dyn_cast<llvm::CallInst>(&inst)) {
+                        if (llvm::Function *callee = call->getCalledFunction()) {
+                            if (callee->getName().find("fmod") != llvm::StringRef::npos) {
+                                calls_fmod = true;
+                            }
+                        }
+                    }
+                    if (inst.getOpcode() == llvm::Instruction::FSub) {
+                        subtracts = true;
+                    }
+                }
+            }
+            if (procedure == "mod1") {
+                CHECK_FALSE(calls_fmod);
+                CHECK(subtracts);
+            } else {
+                CHECK(calls_fmod);
+            }
+        }, false, true, false, [](CompilerOptions &co) {
+            co.po.no_fast_math = true;
+        });
+}
+
 TEST_CASE("LLVM --fast vectorizes a single-precision reverse butterfly") {
     // Six stores into three columns of one array. LLVM 11 will not
     // vectorize that: it runtime-checks every pair of stores and stops
