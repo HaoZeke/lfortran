@@ -9542,4 +9542,47 @@ end module
 #endif
 }
 #endif
+
+TEST_CASE("LLVM --fast vectorizes single-precision stores into several columns") {
+    // Six stores into three columns of one real array. LLVM 11 runtime-checks
+    // every pair of stores through one pointer and stops after eight, so this
+    // stays scalar. Marking the columns noalias lets it become a packed add.
+    std::string source = R"(subroutine cols(n, cc, ch, wa)
+integer, intent(in) :: n
+real, intent(in) :: cc(n, 4), wa(n)
+real, intent(out) :: ch(n, 4)
+integer :: i, ic
+real :: a, b, c, d
+do i = 3, n, 2
+    ic = n + 2 - i
+    a = cc(i, 1) + cc(ic, 4)
+    b = cc(i, 1) - cc(ic, 4)
+    c = cc(i - 1, 1) + cc(ic - 1, 4)
+    d = cc(i - 1, 1) - cc(ic - 1, 4)
+    ch(i - 1, 1) = c + d
+    ch(i, 1) = a + b
+    ch(i - 1, 2) = wa(i - 2)*d - wa(i - 1)*a
+    ch(i, 2) = wa(i - 2)*a + wa(i - 1)*d
+    ch(i - 1, 3) = c - d
+    ch(i, 3) = a - b
+end do
+end subroutine
+)";
+    inspect_definitions(source, true, {{"cols", "cols"}},
+        [&](const std::string &, llvm::Function &fn) {
+            bool wide = false;
+            for (llvm::BasicBlock &block : fn) {
+                for (llvm::Instruction &inst : block) {
+                    if (inst.getOpcode() == llvm::Instruction::FAdd
+                            && inst.getType()->isVectorTy()) {
+                        wide = true;
+                    }
+                }
+            }
+            CHECK(wide);
+        }, false, true, false, [](CompilerOptions &co) {
+            co.po.no_fast_math = true;
+        });
+}
+
 #endif // __EMSCRIPTEN__
