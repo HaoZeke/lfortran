@@ -5613,6 +5613,7 @@ RUN(NAME bindc_module_variable_01 LABELS gfortran llvm
 RUN(NAME character_string_array_01 LABELS gfortran llvm)
 RUN(NAME character_array_output_01 LABELS gfortran llvm)
 RUN(NAME character_array_transfer_01 LABELS gfortran llvm)
+RUN(NAME transfer_alloc_component_01 LABELS gfortran llvm EXTRA_ARGS --fast)
 RUN(NAME optional_kinds_01 LABELS gfortran llvm)
 RUN(NAME fixed_form_flag_01 LABELS gfortran llvm
     EXTRA_ARGS -ffixed-form GFORTRAN_ARGS -ffixed-form)
