@@ -3,6 +3,7 @@
 #include <functional>
 #include <iostream>
 #include <limits>
+#include <map>
 #include <llvm/IR/Value.h>
 #include <memory>
 #include <set>
@@ -811,6 +812,18 @@ public:
     };
     std::vector<CFIArrayWriteback> pending_cfi_array_writebacks;
 
+    // Stores of A(varying, constant-column, ...) collected while a procedure
+    // is lowered. apply_column_element_scopes() marks distinct constant
+    // columns noalias to each other. LLVM 11 otherwise runtime-checks every
+    // pair of stores through one pointer, and gives up past 8 checks, which
+    // is why radb4's eight stores stay scalar.
+    struct ColumnElementStore {
+        llvm::StoreInst *store;
+        uint64_t array;
+        std::string column;
+    };
+    std::vector<ColumnElementStore> column_element_stores;
+
     int64_t ptr_loads;
     bool lookup_enum_value_for_nonints;
     bool is_assignment_target;
@@ -1384,6 +1397,137 @@ public:
         bool div = false;
         loop_gather_and_div(header, exit_bb, gather, div);
         return gather && div;
+    }
+
+    // A constant subscript past the first dimension names a column. Two
+    // in-bounds columns of one array do not overlap; under --fast that is
+    // told to LLVM so a butterfly with a store per column can vectorize.
+    void note_column_element_store(llvm::Value *stored, ASR::expr_t *target) {
+        if (!compiler_options.po.fast || stored == nullptr || target == nullptr
+                || !ASR::is_a<ASR::ArrayItem_t>(*target)) {
+            return;
+        }
+        auto *st = llvm::dyn_cast<llvm::StoreInst>(stored);
+        if (st == nullptr) {
+            return;
+        }
+        const ASR::ArrayItem_t &item = *ASR::down_cast<ASR::ArrayItem_t>(target);
+        if (item.n_args < 2 || !ASR::is_a<ASR::Var_t>(*item.m_v)) {
+            return;
+        }
+        // A 256-bit register holds eight single-precision values and the
+        // reverse butterfly then pays for itself. The same loop in double
+        // precision (four values per register) is slower than the scalar
+        // body, which is the id_dist FFT. Kind 4 is the case that wins.
+        ASR::ttype_t *el = ASRUtils::extract_type(ASRUtils::expr_type(item.m_v));
+        if (el == nullptr || !ASR::is_a<ASR::Real_t>(*el)
+                || ASR::down_cast<ASR::Real_t>(el)->m_kind != 4) {
+            return;
+        }
+        std::string column;
+        for (size_t d = 1; d < item.n_args; d++) {
+            ASR::expr_t *idx = item.m_args[d].m_right;
+            if (idx == nullptr) {
+                continue;
+            }
+            int64_t c = 0;
+            ASR::expr_t *folded = ASRUtils::expr_value(idx);
+            if (ASRUtils::extract_value(idx, c)
+                    || (folded != nullptr && folded != idx
+                        && ASRUtils::extract_value(folded, c))) {
+                column += std::to_string(d);
+                column.push_back('=');
+                column += std::to_string(c);
+                column.push_back(',');
+            }
+        }
+        if (column.empty()) {
+            return;
+        }
+        ASR::Variable_t *var = ASRUtils::EXPR2VAR(item.m_v);
+        column_element_stores.push_back(
+            ColumnElementStore{st, get_hash((ASR::asr_t*) var), column});
+    }
+
+    void apply_column_element_scopes() {
+        if (column_element_stores.size() < 2) {
+            column_element_stores.clear();
+            return;
+        }
+        // The check budget is per loop. These bodies are one block, so the
+        // block is the loop. LLVM 11 runtime-checks every pair of stores
+        // through one pointer and stops after 8. Four stores are 6 checks
+        // and already vectorize; five or more do not. Scoping a block that
+        // already vectorized changed a profitable body.
+        using GroupKey = std::pair<uint64_t, llvm::BasicBlock *>;
+        std::map<GroupKey, std::set<std::string>> columns;
+        std::map<GroupKey, int> nstores;
+        for (const ColumnElementStore &cs : column_element_stores) {
+            GroupKey key{cs.array, cs.store->getParent()};
+            columns[key].insert(cs.column);
+            nstores[key] += 1;
+        }
+        auto qualifies = [&](const GroupKey &key) {
+            return nstores[key] >= 5 && columns[key].size() >= 2;
+        };
+        bool splits = false;
+        for (const auto &kv : columns) {
+            if (qualifies(kv.first)) {
+                splits = true;
+            }
+        }
+        if (!splits) {
+            column_element_stores.clear();
+            return;
+        }
+        llvm::MDNode *domain = llvm::MDNode::getDistinct(context,
+            llvm::ArrayRef<llvm::Metadata *>());
+        struct ScopeNodes {
+            llvm::MDNode *desc;
+            llvm::MDNode *list;
+        };
+        std::map<std::pair<uint64_t, std::string>, ScopeNodes> scopes;
+        for (const auto &kv : columns) {
+            if (!qualifies(kv.first)) {
+                continue;
+            }
+            for (const std::string &col : kv.second) {
+                std::pair<uint64_t, std::string> id{kv.first.first, col};
+                if (scopes.count(id)) {
+                    continue;
+                }
+                std::string name = std::to_string(id.first) + ":" + col;
+                llvm::Metadata *ops[] = {
+                    nullptr, domain, llvm::MDString::get(context, name)};
+                llvm::MDNode *desc = llvm::MDNode::getDistinct(context, ops);
+                desc->replaceOperandWith(0, desc);
+                llvm::Metadata *one[] = {desc};
+                llvm::MDNode *list = llvm::MDNode::get(context, one);
+                scopes[id] = ScopeNodes{desc, list};
+            }
+        }
+        for (const ColumnElementStore &cs : column_element_stores) {
+            GroupKey key{cs.array, cs.store->getParent()};
+            if (!qualifies(key)) {
+                continue;
+            }
+            auto it = scopes.find({cs.array, cs.column});
+            if (it == scopes.end()) {
+                continue;
+            }
+            llvm::SmallVector<llvm::Metadata *, 8> others;
+            for (const std::string &col : columns[key]) {
+                if (col == cs.column) {
+                    continue;
+                }
+                others.push_back(scopes[{cs.array, col}].desc);
+            }
+            cs.store->setMetadata(llvm::LLVMContext::MD_alias_scope,
+                it->second.list);
+            cs.store->setMetadata(llvm::LLVMContext::MD_noalias,
+                llvm::MDNode::get(context, others));
+        }
+        column_element_stores.clear();
     }
 
     // Under --fast, LLVM would runtime-unroll loops whose trip count is unknown.
@@ -9403,6 +9547,7 @@ public:
         for (size_t i=equiv_skip; i<x.n_body; i++) {
             this->visit_stmt(*x.m_body[i]);
         }
+        apply_column_element_scopes();
         if (compiler_options.emit_debug_info) debug_emit_loc(x);
         start_new_block(proc_return);
         // The variables of the main program, and those of modules, are not
@@ -13563,7 +13708,8 @@ public:
                 for (size_t i=equiv_skip; i<x.n_body; i++) {
                     this->visit_stmt(*x.m_body[i]);
                 }
-                
+                apply_column_element_scopes();
+
                 define_function_exit(x);
             }
         } else if( ASRUtils::get_FunctionType(x)->m_abi == ASR::abiType::Intrinsic &&
@@ -17501,7 +17647,8 @@ public:
             }
             LLVM::CreateStore(*builder, value, target);
         } else {
-            LLVM::CreateStore(*builder, value, target);
+            note_column_element_store(
+                LLVM::CreateStore(*builder, value, target), x.m_target);
         }
     }
 
