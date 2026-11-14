@@ -12587,6 +12587,12 @@ public:
                         llvm::ConstantPointerNull::get(
                             llvm::cast<llvm::PointerType>(data_ptr_type)),
                         arr_descr->get_pointer_to_data(desc_array_type, array_desc));
+                    // The offset is otherwise uninitialized. A later copy adds
+                    // it to the null data pointer and gets a non-null address,
+                    // so present() is true and the callee dereferences it.
+                    builder->CreateStore(
+                        llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), 0),
+                        arr_descr->get_offset(desc_array_type, array_desc, false));
                     if (is_assumed_rank) {
                         arr_descr->set_rank(desc_array_type, array_desc,
                             llvm::ConstantInt::get(llvm::Type::getInt32Ty(context), 0));
@@ -17366,6 +17372,19 @@ public:
             return ;
         }
 
+        // Adding an offset to a null data pointer yields a non-null address.
+        // An absent optional array is that null pointer, and its offset is
+        // not a real index, so the adjusted pointer must stay null.
+        auto null_data_stays_null = [&](llvm::Value* data, llvm::Value* adjusted) {
+            llvm::Value* data_is_null = builder->CreateICmpEQ(data,
+                llvm::ConstantPointerNull::get(
+                    llvm::cast<llvm::PointerType>(data->getType())));
+            return builder->CreateSelect(data_is_null,
+                llvm::ConstantPointerNull::get(
+                    llvm::cast<llvm::PointerType>(adjusted->getType())),
+                adjusted);
+        };
+
         llvm::Type *data_type = llvm_utils->get_el_type(
             m_arg, ASRUtils::extract_type(ASRUtils::expr_type(m_arg)), module.get());
         llvm::Type *arr_type = llvm_utils->get_type_from_ttype_t_util(m_arg,
@@ -17389,6 +17408,7 @@ public:
                 arr_descr->get_pointer_to_data(m_arg, src_asr_type, arg, module.get()));
             llvm::Value* src_first_el_ptr = llvm_utils->create_ptr_gep2(data_type, src_data_ptr,
                 arr_descr->get_offset(arr_type, arg));
+            src_first_el_ptr = null_data_stays_null(src_data_ptr, src_first_el_ptr);
             tmp = get_typed_array_data_ptr(src_asr_type, dst_asr_type, data_type, dst_el_type, src_first_el_ptr);
         } else if( m_new == ASR::array_physical_typeType::UnboundedPointerArray &&
             m_old == ASR::array_physical_typeType::DescriptorArray ) {
@@ -17403,6 +17423,7 @@ public:
                 arr_descr->get_pointer_to_data(m_arg, src_asr_type, arg, module.get()));
             llvm::Value* src_first_el_ptr = llvm_utils->create_ptr_gep2(data_type, src_data_ptr,
                 arr_descr->get_offset(arr_type, arg));
+            src_first_el_ptr = null_data_stays_null(src_data_ptr, src_first_el_ptr);
             tmp = get_typed_array_data_ptr(src_asr_type, dst_asr_type, data_type, dst_el_type, src_first_el_ptr);
         } else if(
             m_new == ASR::array_physical_typeType::PointerArray &&
@@ -17534,6 +17555,7 @@ public:
                 arr_descr->get_pointer_to_data(m_arg, src_asr_type2, source_desc, module.get()));
             llvm::Value* src_offset = arr_descr->get_offset(target_desc_type, source_desc_as_target);
             llvm::Value* src_first_el_ptr = llvm_utils->create_ptr_gep2(src_el_type, src_data_ptr, src_offset);
+            src_first_el_ptr = null_data_stays_null(src_data_ptr, src_first_el_ptr);
 
             llvm::Value* dst_first_el_ptr = get_typed_array_data_ptr(
                 src_asr_type2, dst_asr_type, src_el_type, dst_el_type, src_first_el_ptr);
@@ -17637,6 +17659,7 @@ public:
                 arr_descr->get_pointer_to_data(m_arg, src_asr_type, source_desc, module.get()));
             llvm::Value* src_offset = arr_descr->get_offset(target_desc_type, source_desc_as_target);
             llvm::Value* src_first_el_ptr = llvm_utils->create_ptr_gep2(src_el_type, src_data_ptr, src_offset);
+            src_first_el_ptr = null_data_stays_null(src_data_ptr, src_first_el_ptr);
 
             llvm::Value* dst_first_el_ptr = get_typed_array_data_ptr(
                 src_asr_type, dst_asr_type, src_el_type, dst_el_type, src_first_el_ptr);
