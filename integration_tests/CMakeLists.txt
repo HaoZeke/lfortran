@@ -7990,6 +7990,7 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR MATCHES "x86_6
     RUN(NAME separate_compilation_73 LABELS gfortran llvm
         EXTRAFILES separate_compilation_73a.f90) # real(10) constant round-trip through a mod file (#17032)
     RUN(NAME complex_param_array_01 LABELS gfortran llvm)
+    RUN(NAME list_read_quad_01 LABELS gfortran llvm)
 elseif (APPLE AND CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64")
     # GFortran has no real(10) on arm64. real80_int_to_real_01 is left out
     # because it needs more than double precision, which real(10) constants

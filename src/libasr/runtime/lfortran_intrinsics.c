@@ -14542,6 +14542,27 @@ static bool lf_strtof128(const char *s, lf_float128 *val, char **endptr)
                 while (isdigit((unsigned char)*e)) e++;
                 q = e;
             }
+        } else if (q > start && (*q == '+' || *q == '-') &&
+                (isdigit((unsigned char)q[-1]) || q[-1] == '.') &&
+                isdigit((unsigned char)q[1])) {
+            /* List-directed input accepts `1.2-3` as `1.2e-3`. */
+            const char *exp_at = q;
+            q++;
+            while (isdigit((unsigned char)*q)) q++;
+            size_t mant_n = (size_t)(exp_at - start);
+            size_t exp_n = (size_t)(q - exp_at);
+            if (mant_n + 1 + exp_n > LF_F128_TOKEN_MAX) {
+                if (endptr) *endptr = (char*)s;
+                return false;
+            }
+            char token_e[LF_F128_TOKEN_BUF];
+            memcpy(token_e, start, mant_n);
+            token_e[mant_n] = 'e';
+            memcpy(token_e + mant_n + 1, exp_at, exp_n);
+            token_e[mant_n + 1 + exp_n] = '\0';
+            if (endptr) *endptr = (char*)q;
+            *val = lf_float128_from_str(token_e);
+            return true;
         }
     }
     if (q == start) {
@@ -18689,8 +18710,13 @@ LFORTRAN_API void _lfortran_string_read_f32(char *str, int64_t len, char *format
 LFORTRAN_API void _lfortran_string_read_f80(char *str, int64_t len, char *format, long double *f, int32_t *iostat, int64_t *offset) {
     (void) format;
     int64_t off = offset ? *offset : 0;
-    char *buf = to_c_string((const fchar*)(str + off), len - off);
-    normalize_numeric_input(buf, _lfortran_get_decimal_mode(-1));
+    char *narrow = to_c_string((const fchar*)(str + off), len - off);
+    normalize_numeric_input(narrow, _lfortran_get_decimal_mode(-1));
+    size_t narrow_n = strlen(narrow);
+    char *buf = (char*)internal_malloc(narrow_n + 2);
+    memcpy(buf, narrow, narrow_n + 1);
+    internal_free(narrow);
+    normalize_fortran_real_token(buf, narrow_n + 2);
     char *start = buf;
     while (*start == ' ' || *start == '\t') start++;
     char *end = start;
