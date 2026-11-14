@@ -3364,7 +3364,25 @@ void process_overloaded_assignment_function(ASR::symbol_t* proc, ASR::expr_t* ta
             std::string subrout_name = to_lower(subrout->m_name);
             ASR::symbol_t* resolved = curr_scope->resolve_symbol(subrout_name);
             ASR::symbol_t *a_name = nullptr;
-            if (specific != nullptr) {
+            // `specific` is the procedure the generic names. The generic may
+            // live in the module that declares the type, while this assignment
+            // is in a scope that only imported the type. The call has to name
+            // a symbol of this scope, so a specific that is not visible here
+            // is imported below.
+            auto specific_visible_here = [&](ASR::symbol_t* candidate) -> bool {
+                if (candidate == nullptr) {
+                    return false;
+                }
+                SymbolTable* parent = ASRUtils::symbol_parent_symtab(candidate);
+                const char* name = ASRUtils::symbol_name(candidate);
+                for (SymbolTable* scope = curr_scope; scope != nullptr; scope = scope->parent) {
+                    if (scope->get_counter() == parent->get_counter()) {
+                        return scope->get_symbol(name) == candidate;
+                    }
+                }
+                return false;
+            };
+            if (specific != nullptr && specific_visible_here(specific)) {
                 a_name = specific;
                 matched_subrout_name = ASRUtils::symbol_name(a_name);
             } else if( resolved && ASRUtils::symbol_get_past_external(resolved) == proc ) {
