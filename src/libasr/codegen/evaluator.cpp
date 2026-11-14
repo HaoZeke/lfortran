@@ -46,6 +46,7 @@
 #include <llvm/Transforms/Utils/LoopUtils.h>
 #include <llvm/Pass.h>
 #include <llvm/MC/MCSubtargetInfo.h>
+#include <llvm/CodeGen/TargetSubtargetInfo.h>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Target/TargetMachine.h>
 #include <llvm/Transforms/Scalar.h>
@@ -2131,11 +2132,13 @@ static bool keep_negative_stride_off_fast_path(llvm::Function &fn) {
 }
 
 // A strict `s = s + a*b` loop is not vectorized: the reduction is not
-// associative, and runtime unrolling is off. gfortran -O3 still multiplies
-// two products at a time and adds those lanes in order, which is the same
-// rounding as the scalar loop. Do that here, and only when the fmul and
-// fadd carry no fast-math flags.
-static bool widen_strict_product_reduction(llvm::BasicBlock *loop) {
+// associative, and runtime unrolling is off. gfortran -O3 -march=native
+// multiplies a whole vector of products and adds those lanes into the
+// accumulator in order, which is the same rounding as the scalar loop.
+// `width` is 4 when the target has AVX and 2 otherwise. Only when the
+// fmul and fadd carry no fast-math flags.
+static bool widen_strict_product_reduction(llvm::BasicBlock *loop,
+        unsigned width) {
     if (loop == nullptr || loop->getTerminator() == nullptr) {
         return false;
     }
@@ -2237,6 +2240,11 @@ static bool widen_strict_product_reduction(llvm::BasicBlock *loop) {
             if (use->getParent() == loop) {
                 continue;
             }
+            // The sum is the value the loop produces. idd_houseapp multiplies
+            // it by scal in the next block, rather than passing it through a phi.
+            if (&inst == sum) {
+                continue;
+            }
             if (!llvm::isa<llvm::PHINode>(use) || use->getParent() != exit) {
                 return false;
             }
@@ -2256,25 +2264,34 @@ static bool widen_strict_product_reduction(llvm::BasicBlock *loop) {
 
     llvm::Function *fn = loop->getParent();
     llvm::LLVMContext &ctx = fn->getContext();
-    llvm::BasicBlock *head = llvm::BasicBlock::Create(ctx, "dot2.head", fn, loop);
-    llvm::BasicBlock *vec = llvm::BasicBlock::Create(ctx, "dot2.vec", fn, loop);
-    llvm::BasicBlock *mid = llvm::BasicBlock::Create(ctx, "dot2.mid", fn, loop);
-    llvm::BasicBlock *once = llvm::BasicBlock::Create(ctx, "dot2.once", fn, loop);
-    llvm::BasicBlock *join = llvm::BasicBlock::Create(ctx, "dot2.join", fn, loop);
+    const std::string tag = "dot" + std::to_string(width);
+    llvm::BasicBlock *head = llvm::BasicBlock::Create(ctx, tag + ".head", fn, loop);
+    llvm::BasicBlock *vec = llvm::BasicBlock::Create(ctx, tag + ".vec", fn, loop);
+    llvm::BasicBlock *mid = llvm::BasicBlock::Create(ctx, tag + ".mid", fn, loop);
+    llvm::BasicBlock *rest = llvm::BasicBlock::Create(ctx, tag + ".rest", fn, loop);
+    llvm::BasicBlock *join = llvm::BasicBlock::Create(ctx, tag + ".join", fn, loop);
+    auto abandon = [&]() {
+        join->eraseFromParent();
+        rest->eraseFromParent();
+        mid->eraseFromParent();
+        vec->eraseFromParent();
+        head->eraseFromParent();
+        return false;
+    };
     llvm::Type *i64 = iv->getType();
     llvm::Constant *one = llvm::ConstantInt::get(i64, 1);
-    llvm::Constant *two = llvm::ConstantInt::get(i64, 2);
-    llvm::Constant *even_mask = llvm::ConstantInt::get(i64, ~uint64_t(1));
+    llvm::Constant *width_c = llvm::ConstantInt::get(i64, width);
+    llvm::Constant *align_mask = llvm::ConstantInt::get(i64, ~uint64_t(width - 1));
 
     llvm::IRBuilder<> hb(head);
     llvm::Value *niter = hb.CreateAdd(hb.CreateSub(trip, start), one);
-    llvm::Value *nvec = hb.CreateAnd(niter, even_mask);
+    llvm::Value *nvec = hb.CreateAnd(niter, align_mask);
     llvm::Value *vec_end = hb.CreateAdd(start, nvec);
     llvm::Value *trip_plus = hb.CreateAdd(trip, one);
     hb.CreateCondBr(hb.CreateICmpNE(nvec, llvm::ConstantInt::get(i64, 0)), vec, mid);
 
-    auto *ivv = llvm::PHINode::Create(i64, 2, "dot2.iv", vec);
-    auto *accv = llvm::PHINode::Create(acc->getType(), 2, "dot2.acc", vec);
+    auto *ivv = llvm::PHINode::Create(i64, 2, tag + ".iv", vec);
+    auto *accv = llvm::PHINode::Create(acc->getType(), 2, tag + ".acc", vec);
     ivv->addIncoming(start, head);
     accv->addIncoming(start_acc, head);
     llvm::IRBuilder<> vb(vec);
@@ -2319,60 +2336,63 @@ static bool widen_strict_product_reduction(llvm::BasicBlock *loop) {
         }
         return {left, right};
     };
-    llvm::Value *lane1 = vb.CreateAdd(ivv, one);
-    auto pair0 = clone_at(vb, ivv);
-    auto pair1 = clone_at(vb, lane1);
-    if (pair0.first == nullptr || pair0.second == nullptr
-            || pair1.first == nullptr || pair1.second == nullptr) {
-        join->eraseFromParent();
-        once->eraseFromParent();
-        mid->eraseFromParent();
-        vec->eraseFromParent();
-        head->eraseFromParent();
-        return false;
+    llvm::SmallVector<std::pair<llvm::Value*, llvm::Value*>, 4> lanes;
+    for (unsigned lane = 0; lane < width; ++lane) {
+        llvm::Value *at = lane == 0 ? static_cast<llvm::Value*>(ivv)
+            : vb.CreateAdd(ivv, llvm::ConstantInt::get(i64, lane));
+        lanes.push_back(clone_at(vb, at));
+        if (lanes.back().first == nullptr || lanes.back().second == nullptr) {
+            return abandon();
+        }
     }
-    llvm::Type *v2ty = llvm::VectorType::get(prod->getType(), 2);
-    llvm::Value *undef = llvm::UndefValue::get(v2ty);
-    llvm::Value *lhs = vb.CreateInsertElement(undef, pair0.first, vb.getInt32(0));
-    lhs = vb.CreateInsertElement(lhs, pair1.first, vb.getInt32(1));
-    llvm::Value *rhs = vb.CreateInsertElement(undef, pair0.second, vb.getInt32(0));
-    rhs = vb.CreateInsertElement(rhs, pair1.second, vb.getInt32(1));
+    llvm::Type *vty = llvm::VectorType::get(prod->getType(), width);
+    llvm::Value *undef = llvm::UndefValue::get(vty);
+    llvm::Value *lhs = undef;
+    llvm::Value *rhs = undef;
+    for (unsigned lane = 0; lane < width; ++lane) {
+        lhs = vb.CreateInsertElement(lhs, lanes[lane].first, vb.getInt32(lane));
+        rhs = vb.CreateInsertElement(rhs, lanes[lane].second, vb.getInt32(lane));
+    }
     llvm::Value *wide = vb.CreateFMul(lhs, rhs);
-    llvm::Value *p0 = vb.CreateExtractElement(wide, vb.getInt32(0));
-    llvm::Value *p1 = vb.CreateExtractElement(wide, vb.getInt32(1));
-    llvm::Value *s1 = vb.CreateFAdd(accv, p0);
-    llvm::Value *s2 = vb.CreateFAdd(s1, p1);
-    llvm::Value *ivn = vb.CreateAdd(ivv, two);
+    llvm::Value *folded = accv;
+    for (unsigned lane = 0; lane < width; ++lane) {
+        folded = vb.CreateFAdd(folded,
+            vb.CreateExtractElement(wide, vb.getInt32(lane)));
+    }
+    llvm::Value *ivn = vb.CreateAdd(ivv, width_c);
     vb.CreateCondBr(vb.CreateICmpEQ(ivn, vec_end), mid, vec);
     ivv->addIncoming(ivn, vec);
-    accv->addIncoming(s2, vec);
+    accv->addIncoming(folded, vec);
 
-    auto *ivm = llvm::PHINode::Create(i64, 2, "dot2.iv.mid", mid);
-    auto *accm = llvm::PHINode::Create(acc->getType(), 2, "dot2.acc.mid", mid);
+    auto *ivm = llvm::PHINode::Create(i64, 2, tag + ".iv.mid", mid);
+    auto *accm = llvm::PHINode::Create(acc->getType(), 2, tag + ".acc.mid", mid);
     ivm->addIncoming(start, head);
     ivm->addIncoming(vec_end, vec);
     accm->addIncoming(start_acc, head);
-    accm->addIncoming(s2, vec);
+    accm->addIncoming(folded, vec);
     llvm::IRBuilder<> mb(mid);
-    mb.CreateCondBr(mb.CreateICmpSGT(ivm, trip), join, once);
+    mb.CreateCondBr(mb.CreateICmpSGT(ivm, trip), join, rest);
 
-    llvm::IRBuilder<> ob(once);
-    auto once_pair = clone_at(ob, ivm);
-    if (once_pair.first == nullptr || once_pair.second == nullptr) {
-        join->eraseFromParent();
-        once->eraseFromParent();
-        mid->eraseFromParent();
-        vec->eraseFromParent();
-        head->eraseFromParent();
-        return false;
+    // The tail is one, two or three scalar products, still in order.
+    auto *ivr = llvm::PHINode::Create(i64, 2, tag + ".iv.rest", rest);
+    auto *accr = llvm::PHINode::Create(acc->getType(), 2, tag + ".acc.rest", rest);
+    ivr->addIncoming(ivm, mid);
+    accr->addIncoming(accm, mid);
+    llvm::IRBuilder<> rb(rest);
+    auto rest_pair = clone_at(rb, ivr);
+    if (rest_pair.first == nullptr || rest_pair.second == nullptr) {
+        return abandon();
     }
-    llvm::Value *ps = ob.CreateFMul(once_pair.first, once_pair.second);
-    llvm::Value *ss = ob.CreateFAdd(accm, ps);
-    ob.CreateBr(join);
+    llvm::Value *ps = rb.CreateFMul(rest_pair.first, rest_pair.second);
+    llvm::Value *ss = rb.CreateFAdd(accr, ps);
+    llvm::Value *ivr_next = rb.CreateAdd(ivr, one);
+    rb.CreateCondBr(rb.CreateICmpSGT(ivr_next, trip), join, rest);
+    ivr->addIncoming(ivr_next, rest);
+    accr->addIncoming(ss, rest);
 
-    auto *accj = llvm::PHINode::Create(acc->getType(), 2, "dot2.acc.join", join);
+    auto *accj = llvm::PHINode::Create(acc->getType(), 2, tag + ".acc.join", join);
     accj->addIncoming(accm, mid);
-    accj->addIncoming(ss, once);
+    accj->addIncoming(ss, rest);
     llvm::IRBuilder<> jb(join);
     jb.CreateBr(exit);
 
@@ -2396,6 +2416,16 @@ static bool widen_strict_product_reduction(llvm::BasicBlock *loop) {
             phi.setIncomingValue(idx, trip_plus);
         }
         phi.setIncomingBlock(idx, join);
+    }
+    llvm::SmallVector<llvm::Use*, 8> produced;
+    for (llvm::Use &use : sum->uses()) {
+        auto *user = llvm::cast<llvm::Instruction>(use.getUser());
+        if (user->getParent() != loop) {
+            produced.push_back(&use);
+        }
+    }
+    for (llvm::Use *use : produced) {
+        use->set(accj);
     }
     loop->eraseFromParent();
     return true;
@@ -2680,11 +2710,21 @@ void LLVMEvaluator::opt(llvm::Module &m) {
         if (fn.isDeclaration()) {
             continue;
         }
+        unsigned width = 2;
+        llvm::Triple triple(m.getTargetTriple());
+        if (target_config.prefer_vector_width != 128
+                && (triple.getArch() == llvm::Triple::x86
+                    || triple.getArch() == llvm::Triple::x86_64)
+                && TM->getSubtargetImpl(fn)->checkFeatures("+avx")) {
+            // Four doubles fill a ymm register, which is the width
+            // gfortran -march=native uses for this ordered reduction.
+            width = 4;
+        }
         bool again = true;
         while (again) {
             again = false;
             for (llvm::BasicBlock &bb : fn) {
-                if (widen_strict_product_reduction(&bb)) {
+                if (widen_strict_product_reduction(&bb, width)) {
                     again = true;
                     break;
                 }

@@ -1912,6 +1912,80 @@ end subroutine
         });
 }
 
+TEST_CASE("LLVM --fast --no-fast-math adds a dot product in vector-lane order") {
+    // fact = u(1); do k = 2, n; fact = fact + vn(k)*u(k); fact = fact*scal.
+    // The sum is used after the loop. gfortran -O3 -march=native multiplies
+    // four products and adds the lanes in order. That is the scalar rounding.
+    std::string source = R"(subroutine house_dot(n, vn, u, fact)
+integer, intent(in) :: n
+real(8), intent(in) :: vn(*), u(*)
+real(8), intent(out) :: fact
+integer :: k
+fact = u(1)
+do k = 2, n
+    fact = fact + vn(k)*u(k)
+end do
+fact = fact*2.0d0
+end subroutine
+)";
+    Allocator al(64*1024);
+    LCompilers::diag::Diagnostics diagnostics;
+    CompilerOptions co;
+    co.po.runtime_library_dir = LFORTRAN_BUILD_RUNTIME_DIR;
+    co.platform = LCompilers::get_platform();
+    co.po.fast = true;
+    co.po.no_fast_math = true;
+    co.po.bounds_checking = false;
+    co.po.strict_bounds_checking = false;
+    co.mcpu = "haswell";
+    LCompilers::LLVMEvaluator e(co);
+    LCompilers::LFortran::AST::TranslationUnit_t* tu = TRY(
+        LCompilers::LFortran::parse(al, source, diagnostics, co));
+    LCompilers::LocationManager lm;
+    LCompilers::LocationManager::FileLocations file;
+    file.in_filename = "house_dot.f90";
+    lm.files.push_back(file);
+    lm.file_ends.push_back(LCompilers::LFortran::source_offset(source.size()));
+    LCompilers::ASR::TranslationUnit_t* asr = TRY(
+        LCompilers::LFortran::ast_to_asr(al, *tu, diagnostics, nullptr, false,
+            co, lm));
+    LCompilers::PassManager lpm;
+    lpm.use_default_passes();
+    LCompilers::Result<std::unique_ptr<LCompilers::LLVMModule>> res
+        = LCompilers::asr_to_llvm(*asr, diagnostics, e.get_context(),
+            e.get_target_config(), al, lpm, co, "", "", "", lm);
+    INFO(diagnostics.render2());
+    REQUIRE(res.ok);
+    e.opt(*res.result->m_m);
+    llvm::Function *fn = nullptr;
+    for (llvm::Function &f : *res.result->m_m) {
+        if (!f.isDeclaration() && f.getName() == "house_dot") fn = &f;
+    }
+    REQUIRE(fn != nullptr);
+    unsigned widest = 0;
+    bool vector_add = false;
+    for (llvm::BasicBlock &block : *fn) {
+        unsigned extracts = 0;
+        bool multiplied = false;
+        for (llvm::Instruction &inst : block) {
+            if (inst.getOpcode() == llvm::Instruction::FAdd
+                    && inst.getType()->isVectorTy()) {
+                vector_add = true;
+            }
+            if (inst.getOpcode() == llvm::Instruction::FMul
+                    && inst.getType()->isVectorTy()) {
+                multiplied = true;
+            }
+            if (inst.getOpcode() == llvm::Instruction::ExtractElement) {
+                extracts++;
+            }
+        }
+        if (multiplied && extracts > widest) widest = extracts;
+    }
+    CHECK(widest == 4);
+    CHECK(!vector_add);
+}
+
 TEST_CASE("LLVM --fast leaves a negative stride multiply off the fast path") {
     // ix = 1; if (inc < 0) ix = (1 - n)*inc + 1. The multiply is only
     // needed for a negative increment. --fast must not run it before
