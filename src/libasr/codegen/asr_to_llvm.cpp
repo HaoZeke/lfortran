@@ -27442,9 +27442,16 @@ public:
                         !ASRUtils::is_array(actual_var->m_type) &&
                         llvm_symtab.find(actual_h) != llvm_symtab.end()) {
                     llvm::Value* slot = llvm_symtab[actual_h];
-                    if (slot->getType()->isPointerTy() &&
-                            slot->getType()->getPointerElementType()->isPointerTy()) {
-                        llvm::Type* inner_ty = slot->getType()->getPointerElementType();
+                    // LLVM 16 uses opaque pointers, so the pointee type is
+                    // not on the pointer. An optional allocatable scalar is
+                    // a pointer to its data pointer.
+                    if (slot->getType()->isPointerTy()) {
+                        ASR::ttype_t* elem = ASRUtils::type_get_past_allocatable_pointer(
+                            actual_var->m_type);
+                        llvm::Type* elem_llvm = llvm_utils->get_type_from_ttype_t_util(
+                            x.m_args[i].m_value, elem, module.get());
+                        llvm::Type* inner_ty = elem_llvm->isPointerTy()
+                            ? elem_llvm : elem_llvm->getPointerTo();
                         llvm::BasicBlock* cur = builder->GetInsertBlock();
                         llvm::Function* fn = cur->getParent();
                         llvm::BasicBlock* live_bb = llvm::BasicBlock::Create(
