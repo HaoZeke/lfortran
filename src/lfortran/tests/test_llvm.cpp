@@ -1912,6 +1912,33 @@ end subroutine
         });
 }
 
+TEST_CASE("LLVM --fast vectorizes a short absolute reduction") {
+    // do j = 1, 10; s = s + abs(a(j) - c). Ten iterations used to unroll
+    // into scalar subtractions. The loop is kept and vectorized at width 4.
+    std::string source = R"(subroutine accum(a, c, s)
+real(8), intent(in) :: a(10), c
+real(8), intent(inout) :: s
+integer :: j
+do j = 1, 10
+    s = s + abs(a(j) - c)
+end do
+end subroutine
+)";
+    inspect_definitions(source, true, {{"accum", "accum"}},
+        [&](const std::string &, llvm::Function &fn) {
+            bool wide = false;
+            for (llvm::BasicBlock &block : fn) {
+                for (llvm::Instruction &inst : block) {
+                    if (inst.getOpcode() == llvm::Instruction::FSub
+                            && inst.getType()->isVectorTy()) {
+                        wide = true;
+                    }
+                }
+            }
+            CHECK(wide);
+        }, false, true);
+}
+
 TEST_CASE("LLVM --fast --no-fast-math adds a dot product in vector-lane order") {
     // fact = u(1); do k = 2, n; fact = fact + vn(k)*u(k); fact = fact*scal.
     // The sum is used after the loop. gfortran -O3 -march=native multiplies

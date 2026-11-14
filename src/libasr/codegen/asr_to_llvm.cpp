@@ -1275,9 +1275,10 @@ public:
     // gfortran -O3 keeps (gcc -march=native -fno-fast-math declines it too).
     // With fast-math the division becomes a multiply and the gather pays off,
     // so this only applies to --fast --no-fast-math.
-    bool loop_has_gather_and_div(llvm::BasicBlock* header, llvm::BasicBlock* exit_bb) {
-        bool gather = false;
-        bool div = false;
+    void loop_gather_and_div(llvm::BasicBlock* header, llvm::BasicBlock* exit_bb,
+            bool &gather, bool &div) {
+        gather = false;
+        div = false;
         std::set<llvm::Value*> slots;
         std::vector<llvm::BasicBlock*> work;
         std::set<llvm::BasicBlock*> seen;
@@ -1321,6 +1322,67 @@ public:
                 work.push_back(term->getSuccessor(i));
             }
         }
+    }
+
+    // The dqk error sum is a straight `s = s + abs(a(j) - c)`. A Horner
+    // step and a loop with a data-dependent branch are not that form:
+    // forcing those to stay rolled (cumnor's 7-term polynomial, the
+    // id_dist max) is slower than the unrolled scalar body.
+    bool loop_is_straight_abs_reduction(llvm::BasicBlock* header,
+            llvm::BasicBlock* exit_bb, llvm::BranchInst* latch) {
+        bool saw_sub = false;
+        bool saw_abs = false;
+        std::vector<llvm::BasicBlock*> work;
+        std::set<llvm::BasicBlock*> seen;
+        work.push_back(header);
+        while (!work.empty()) {
+            llvm::BasicBlock* bb = work.back();
+            work.pop_back();
+            if (bb == nullptr || bb == exit_bb || !seen.insert(bb).second) {
+                continue;
+            }
+            for (llvm::Instruction& inst : *bb) {
+                if (inst.getOpcode() == llvm::Instruction::FSub) {
+                    saw_sub = true;
+                }
+                if (auto* call = llvm::dyn_cast<llvm::CallInst>(&inst)) {
+                    if (llvm::Function* callee = call->getCalledFunction()) {
+                        if (callee->getName().find("fabs") != llvm::StringRef::npos) {
+                            saw_abs = true;
+                        }
+                    }
+                }
+                auto* br = llvm::dyn_cast<llvm::BranchInst>(&inst);
+                if (br != nullptr && br->isConditional() && br != latch) {
+                    return false;
+                }
+                auto* store = llvm::dyn_cast<llvm::StoreInst>(&inst);
+                if (store == nullptr) {
+                    continue;
+                }
+                llvm::Value* ptr = store->getPointerOperand();
+                if (auto* bc = llvm::dyn_cast<llvm::BitCastInst>(ptr)) {
+                    ptr = bc->getOperand(0);
+                }
+                if (llvm::isa<llvm::GetElementPtrInst>(ptr)) {
+                    return false;
+                }
+            }
+            llvm::Instruction* term = bb->getTerminator();
+            if (term == nullptr) {
+                continue;
+            }
+            for (unsigned i = 0; i < term->getNumSuccessors(); i++) {
+                work.push_back(term->getSuccessor(i));
+            }
+        }
+        return saw_sub && saw_abs;
+    }
+
+    bool loop_has_gather_and_div(llvm::BasicBlock* header, llvm::BasicBlock* exit_bb) {
+        bool gather = false;
+        bool div = false;
+        loop_gather_and_div(header, exit_bb, gather, div);
         return gather && div;
     }
 
@@ -1332,7 +1394,8 @@ public:
     // A loop that calls through a procedure argument is not fully unrolled either:
     // the call stays one site, as in gfortran -O3.
     void disable_runtime_unrolling(llvm::BranchInst* latch,
-            llvm::BasicBlock* header, llvm::BasicBlock* exit_bb) {
+            llvm::BasicBlock* header, llvm::BasicBlock* exit_bb,
+            int64_t known_trip = 0) {
         if (!compiler_options.po.fast || latch == nullptr) {
             return;
         }
@@ -1341,12 +1404,39 @@ public:
         const char* kind = block_unroll
             ? "llvm.loop.unroll.disable"
             : "llvm.loop.unroll.runtime.disable";
-        llvm::SmallVector<llvm::Metadata*, 4> ops;
+        llvm::SmallVector<llvm::Metadata*, 6> ops;
         ops.push_back(nullptr);
         ops.push_back(llvm::MDNode::get(context,
             llvm::MDString::get(context, kind)));
+        // A counted loop of 7 to 32 iterations with no call and no gather
+        // is fully unrolled into scalar code (dqk21's `j = 1, 10` error
+        // sum: 17 scalar subtractions). gfortran keeps it as 256-bit
+        // vectors. A width hint is what makes LLVM 11 do the same. Wider
+        // or runtime trips are left to the cost model: forcing those
+        // (radb4, subsm) was slower.
+        bool gather = false;
+        bool div = false;
+        if (header != nullptr) {
+            loop_gather_and_div(header, exit_bb, gather, div);
+        }
+        // runtime.disable still lets a known trip of 10 be fully unrolled
+        // before the vectorizer runs, which is how the scalar subtraction
+        // chain appears. Disabling that unroll keeps the loop until the
+        // vectorizer, and the width hint makes the 256-bit body.
+        if (!block_unroll && !gather && known_trip >= 7 && known_trip <= 32
+                && loop_is_straight_abs_reduction(header, exit_bb, latch)) {
+            ops.pop_back();
+            ops.push_back(llvm::MDNode::get(context, llvm::MDString::get(
+                context, "llvm.loop.unroll.disable")));
+            llvm::Metadata* width[] = {
+                llvm::MDString::get(context, "llvm.loop.vectorize.width"),
+                llvm::ConstantAsMetadata::get(llvm::ConstantInt::get(
+                    llvm::Type::getInt32Ty(context), 4))
+            };
+            ops.push_back(llvm::MDNode::get(context, width));
+        }
         if (compiler_options.po.no_fast_math && header != nullptr
-                && loop_has_gather_and_div(header, exit_bb)) {
+                && gather && div) {
             llvm::Metadata* enable[] = {
                 llvm::MDString::get(context, "llvm.loop.vectorize.enable"),
                 llvm::ConstantAsMetadata::get(llvm::ConstantInt::getFalse(context))
@@ -19505,9 +19595,24 @@ public:
             remaining->addIncoming(builder->CreateSub(remaining,
                 llvm::ConstantInt::get(iv_type, 1)), latch);
         }
+        int64_t known_trip = 0;
+        int64_t start_c = 0;
+        int64_t end_c = 0;
+        if (step_known
+                && ASRUtils::extract_value(
+                    ASRUtils::expr_value(head.m_start), start_c)
+                && ASRUtils::extract_value(
+                    ASRUtils::expr_value(head.m_end), end_c)
+                && step_value != 0) {
+            if (step_value > 0 && end_c >= start_c) {
+                known_trip = (end_c - start_c) / step_value + 1;
+            } else if (step_value < 0 && start_c >= end_c) {
+                known_trip = (start_c - end_c) / (-step_value) + 1;
+            }
+        }
         disable_runtime_unrolling(
             builder->CreateCondBr(last, orelse_bb, body_bb),
-            body_bb, orelse_bb);
+            body_bb, orelse_bb, known_trip);
 
         if (n_orelse > 0) {
             start_new_block(orelse_bb);
