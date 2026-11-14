@@ -294,6 +294,15 @@ class GlobalInitVisitor {
                 }
                 return kind == 10 || kind == 16;
             }
+            // `transpose` of a `real(10)` or `real(16)` array is not an
+            // array constant. Left on a saved variable, the call becomes a
+            // reference to a temporary, and that temporary's address is
+            // stored into the global from another function.
+            if (ASR::is_a<ASR::IntrinsicArrayFunction_t>(*init)) {
+                ASR::expr_t *value = v.m_value ? v.m_value
+                    : ASRUtils::expr_value(init);
+                return !(value && ASR::is_a<ASR::ArrayConstant_t>(*value));
+            }
             // A saved structure local whose initializer is not a constant
             // the backend can lay out, such as `t(f)` with a procedure
             // target, is assigned once, the first time control reaches it.
